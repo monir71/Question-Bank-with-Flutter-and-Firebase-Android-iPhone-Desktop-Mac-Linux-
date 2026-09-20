@@ -240,7 +240,7 @@ flutter doctor
 ### Clone the Repository
 
 ```bash
-git clone <your-repository-url>
+gh repo clone monir71/Question-Bank-with-Flutter-and-Firebase-Android-iPhone-Desktop-Mac-Linux-
 ```
 
 Move into the project directory:
