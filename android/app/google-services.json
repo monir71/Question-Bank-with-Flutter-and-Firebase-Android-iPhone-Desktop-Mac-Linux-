@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "843705089057",
+    "project_id": "questionbank-1c424",
+    "storage_bucket": "questionbank-1c424.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:843705089057:android:471938a34c4c27e9827760",
+        "android_client_info": {
+          "package_name": "com.example.questionbank"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQcIrJSXzKeCwGHl20EF6khoSTZDB_nD0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
