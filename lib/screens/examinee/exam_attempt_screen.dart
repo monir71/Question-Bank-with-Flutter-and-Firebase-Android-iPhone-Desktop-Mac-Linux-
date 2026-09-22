@@ -8,6 +8,8 @@ import 'package:questionbank/models/question.dart';
 import 'package:questionbank/services/exam_attempt_service.dart';
 import 'package:questionbank/services/question_service.dart';
 
+import 'exam_result_screen.dart';
+
 class ExamAttemptScreen extends StatefulWidget {
   final Exam exam;
   final ExamAttempt attempt;
@@ -816,7 +818,16 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
         return;
       }
 
-      Navigator.of(context).pop();
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) {
+            return ExamResultScreen(
+              exam: widget.exam,
+              attempt: finalAttempt,
+            );
+          },
+        ),
+      );
     } catch (e) {
       if (!mounted) {
         return;

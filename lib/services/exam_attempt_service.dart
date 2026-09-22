@@ -8,6 +8,7 @@ import 'package:questionbank/services/question_service.dart';
 
 import '../models/exam_result.dart';
 import 'exam_result_service.dart';
+import 'exam_scoring_service.dart';
 
 class ExamAttemptService {
   final FirebaseFirestore _firestore =
@@ -15,6 +16,9 @@ class ExamAttemptService {
 
   final QuestionService _questionService =
   QuestionService();
+
+  final ExamScoringService _scoringService =
+  const ExamScoringService();
 
   final Random _random = Random();
 
@@ -263,13 +267,23 @@ class ExamAttemptService {
     required double score,
     required double percentage,
   }) async {
+    final questions =
+    await _questionService.getAllQuestions();
+
+    final examScore =
+    _scoringService.calculateScore(
+      exam: exam,
+      questions: questions,
+      attempt: attempt,
+    );
+
     await _collection.doc(attempt.attemptId).update({
       'status':
       ExamAttemptStatus.completed.name,
       'completedAt':
       FieldValue.serverTimestamp(),
-      'score': score,
-      'percentage': percentage,
+      'score': examScore.score,
+      'percentage': examScore.percentage,
       'updatedAt':
       FieldValue.serverTimestamp(),
     });
@@ -279,6 +293,19 @@ class ExamAttemptService {
       attempt: attempt,
       submissionType:
       ExamResultSubmissionType.manual,
+      correctAnswers:
+      examScore.correctAnswers,
+      wrongAnswers:
+      examScore.wrongAnswers,
+      answeredQuestions:
+      examScore.answeredQuestions,
+      unansweredQuestions:
+      examScore.unansweredQuestions,
+      score: examScore.score,
+      percentage: examScore.percentage,
+      passed: examScore.passed,
+      questionResults:
+      examScore.questionResults,
     );
   }
 
@@ -290,13 +317,23 @@ class ExamAttemptService {
     required double score,
     required double percentage,
   }) async {
+    final questions =
+    await _questionService.getAllQuestions();
+
+    final examScore =
+    _scoringService.calculateScore(
+      exam: exam,
+      questions: questions,
+      attempt: attempt,
+    );
+
     await _collection.doc(attempt.attemptId).update({
       'status':
       ExamAttemptStatus.autoSubmitted.name,
       'completedAt':
       FieldValue.serverTimestamp(),
-      'score': score,
-      'percentage': percentage,
+      'score': examScore.score,
+      'percentage': examScore.percentage,
       'updatedAt':
       FieldValue.serverTimestamp(),
     });
@@ -306,6 +343,19 @@ class ExamAttemptService {
       attempt: attempt,
       submissionType:
       ExamResultSubmissionType.automatic,
+      correctAnswers:
+      examScore.correctAnswers,
+      wrongAnswers:
+      examScore.wrongAnswers,
+      answeredQuestions:
+      examScore.answeredQuestions,
+      unansweredQuestions:
+      examScore.unansweredQuestions,
+      score: examScore.score,
+      percentage: examScore.percentage,
+      passed: examScore.passed,
+      questionResults:
+      examScore.questionResults,
     );
   }
 }

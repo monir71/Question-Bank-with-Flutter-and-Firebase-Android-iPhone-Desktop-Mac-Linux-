@@ -1,25 +1,40 @@
 import 'package:questionbank/models/exam.dart';
 import 'package:questionbank/models/exam_attempt.dart';
+import 'package:questionbank/models/exam_question_result.dart';
 import 'package:questionbank/models/question.dart';
+
+class ExamScore {
+  final int correctAnswers;
+  final int wrongAnswers;
+  final int answeredQuestions;
+  final int unansweredQuestions;
+
+  final double score;
+  final double percentage;
+  final bool passed;
+
+  final List<ExamQuestionResult> questionResults;
+
+  const ExamScore({
+    required this.correctAnswers,
+    required this.wrongAnswers,
+    required this.answeredQuestions,
+    required this.unansweredQuestions,
+    required this.score,
+    required this.percentage,
+    required this.passed,
+    required this.questionResults,
+  });
+}
 
 class ExamScoringService {
   const ExamScoringService();
 
-  /// Calculates the score for objective questions only.
-  ///
-  /// Supported question types in this step:
-  /// - multiple
-  /// - trueFalse
-  ///
-  /// Written questions are ignored for now and will be handled
-  /// in the written/manual/hybrid assessment step.
-  double calculateObjectiveScore({
+  ExamScore calculateScore({
     required Exam exam,
     required List<Question> questions,
     required ExamAttempt attempt,
   }) {
-    double score = 0.0;
-
     final questionsById = <String, Question>{
       for (final question in questions) question.questionId: question,
     };
@@ -28,6 +43,14 @@ class ExamScoringService {
       for (final answer in attempt.answers) answer.questionId: answer,
     };
 
+    int correctAnswers = 0;
+    int wrongAnswers = 0;
+    int answeredQuestions = 0;
+
+    double score = 0.0;
+
+    final questionResults = <ExamQuestionResult>[];
+
     for (final examQuestion in exam.questions) {
       final question = questionsById[examQuestion.questionId];
 
@@ -35,39 +58,110 @@ class ExamScoringService {
         continue;
       }
 
-      if (question.questionType == QuestionType.written) {
-        continue;
-      }
-
       final answer = answersByQuestionId[question.questionId];
 
-      if (answer == null) {
+      final isWritten = question.questionType == QuestionType.written;
+
+      final hasAnswer =
+          answer != null &&
+          (answer.selectedOptionIds.isNotEmpty ||
+              answer.writtenAnswer.trim().isNotEmpty);
+
+      if (hasAnswer) {
+        answeredQuestions++;
+      }
+
+      // ----------------------------------------------------------
+      // Written question
+      // ----------------------------------------------------------
+
+      if (isWritten) {
+        questionResults.add(
+          ExamQuestionResult(
+            questionId: question.questionId,
+            maximumMarks: examQuestion.marks,
+            awardedMarks: 0.0,
+            answered: hasAnswer,
+            correct: false,
+            selectedOptionIds: answer?.selectedOptionIds ?? const [],
+            writtenAnswer: answer?.writtenAnswer ?? '',
+            assessmentStatus: QuestionAssessmentStatus.pending,
+          ),
+        );
+
         continue;
       }
 
-      if (_isCorrectObjectiveAnswer(question: question, answer: answer)) {
-        score += examQuestion.marks;
+      // ----------------------------------------------------------
+      // Objective question
+      // ----------------------------------------------------------
+
+      if (!hasAnswer) {
+        questionResults.add(
+          ExamQuestionResult(
+            questionId: question.questionId,
+            maximumMarks: examQuestion.marks,
+            awardedMarks: 0.0,
+            answered: false,
+            correct: false,
+            selectedOptionIds: const [],
+            writtenAnswer: '',
+            assessmentStatus: QuestionAssessmentStatus.automatic,
+          ),
+        );
+
+        continue;
       }
+
+      final isCorrect = _isCorrectObjectiveAnswer(
+        question: question,
+        answer: answer!,
+      );
+
+      if (isCorrect) {
+        correctAnswers++;
+        score += examQuestion.marks;
+      } else {
+        wrongAnswers++;
+      }
+
+      questionResults.add(
+        ExamQuestionResult(
+          questionId: question.questionId,
+          maximumMarks: examQuestion.marks,
+          awardedMarks: isCorrect ? examQuestion.marks : 0.0,
+          answered: true,
+          correct: isCorrect,
+          selectedOptionIds: answer.selectedOptionIds,
+          writtenAnswer: '',
+          assessmentStatus: QuestionAssessmentStatus.automatic,
+        ),
+      );
     }
 
-    return score;
+    final totalQuestions = attempt.questionOrder.length;
+
+    final unansweredQuestions = totalQuestions - answeredQuestions;
+
+    final percentage = _calculatePercentage(
+      score: score,
+      totalMarks: exam.totalMarks,
+    );
+
+    final passed = percentage >= exam.passPercentage;
+
+    return ExamScore(
+      correctAnswers: correctAnswers,
+      wrongAnswers: wrongAnswers,
+      answeredQuestions: answeredQuestions,
+      unansweredQuestions: unansweredQuestions,
+      score: score,
+      percentage: percentage,
+      passed: passed,
+      questionResults: questionResults,
+    );
   }
 
-  /// Calculates the percentage based on the exam's configured total marks.
-  double calculatePercentage({
-    required double score,
-    required double totalMarks,
-  }) {
-    if (totalMarks <= 0) {
-      return 0.0;
-    }
-
-    final percentage = (score / totalMarks) * 100;
-
-    return percentage.clamp(0.0, 100.0);
-  }
-
-  /// Determines whether the submitted objective answer is completely correct.
   bool _isCorrectObjectiveAnswer({
     required Question question,
     required ExamAttemptAnswer answer,
@@ -81,5 +175,18 @@ class ExamScoringService {
     }
 
     return selectedAnswers.containsAll(correctAnswers);
+  }
+
+  double _calculatePercentage({
+    required double score,
+    required double totalMarks,
+  }) {
+    if (totalMarks <= 0) {
+      return 0.0;
+    }
+
+    final percentage = (score / totalMarks) * 100;
+
+    return percentage.clamp(0.0, 100.0);
   }
 }
