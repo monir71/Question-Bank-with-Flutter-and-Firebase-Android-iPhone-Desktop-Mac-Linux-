@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:questionbank/screens/admin/exams_screen.dart';
 import 'package:questionbank/screens/admin/programs_screen.dart';
 import 'package:questionbank/screens/admin/questions_screen.dart';
 import 'package:questionbank/screens/admin/subjects_screen.dart';
@@ -15,7 +16,6 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-
   int _selectedIndex = 0;
 
   void _selectSection(int index) {
@@ -45,8 +45,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       case 5:
         return const TopicsScreen();
 
-        case 6:
+      case 6:
         return const QuestionsScreen();
+
+      case 7:
+        return const ExamsScreen();
+
+      case 8:
+        return _buildDashboardHome();
 
       case 0:
       default:
@@ -55,32 +61,104 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildDashboardHome() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Page heading
           const Text(
             'Dashboard',
             style: TextStyle(
               fontSize: 30,
               fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
             ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           Text(
             'Welcome to Question Bank Administration',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
+            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+          ),
+
+          const SizedBox(height: 28),
+
+          _buildDashboardCards(context),
+
+          const SizedBox(height: 28),
+
+          _buildWelcomePanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWelcomePanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [Colors.blue.shade900, Colors.blue.shade700],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.shade900.withValues(alpha: 0.15),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.admin_panel_settings_outlined,
+              color: Colors.white,
+              size: 32,
             ),
           ),
 
-          const SizedBox(height: 30),
+          const SizedBox(width: 18),
 
-          _buildDashboardCards(context),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Administration Center',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                Text(
+                  'Manage users, learning areas, programs, '
+                  'subjects, topics and questions from one place.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -92,43 +170,54 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     required IconData icon,
   }) {
     return SizedBox(
-      height: 100,
+      height: 110,
       child: Card(
         elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 36,
-                color: Colors.blue.shade700,
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 28, color: Colors.blue.shade800),
               ),
 
               const SizedBox(width: 14),
 
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 4),
+                    const SizedBox(height: 5),
 
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -138,24 +227,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildDashboardCards(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-
-    int columns;
-
-    if (width < 600) {
-      columns = 1;
-    } else if (width < 1000) {
-      columns = 2;
-    } else {
-      columns = 4;
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
+        final width = constraints.maxWidth;
+
+        int columns;
+
+        if (width < 600) {
+          columns = 1;
+        } else if (width < 1000) {
+          columns = 2;
+        } else {
+          columns = 4;
+        }
+
         const spacing = 16.0;
 
-        final cardWidth =
-            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        final cardWidth = (width - (spacing * (columns - 1))) / columns;
 
         return Wrap(
           spacing: spacing,
@@ -208,230 +296,395 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _buildSidebar() {
     return Container(
-      width: 240,
-      color: Colors.blue.shade900,
+      width: 250,
+      decoration: BoxDecoration(
+        color: Colors.blue.shade900,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(2, 0),
+          ),
+        ],
+      ),
       child: Column(
         children: [
-          const SizedBox(height: 30),
-
-          const Text(
-            'QUESTION BANK',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 40),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.dashboard_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Dashboard',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {
-                setState(() {
-                  _selectSection(0);
-                });
-              },
-            ),
-          ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.people_outline,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Users',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {
-                setState(() {
-                  _selectSection(1);
-                });
-              },
-            ),
-          ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.question_mark_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Questions',
-                style: TextStyle(
-                  color: Colors.white,
+          // --------------------------------------------------
+          // Brand Header
+          // --------------------------------------------------
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 22),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.menu_book_outlined,
+                    color: Colors.white,
+                    size: 25,
+                  ),
                 ),
-              ),
-              onTap: () {
-                _selectSection(2);
-              },
-            ),
-          ),
 
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.school_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Programs',
-                style: TextStyle(
-                  color: Colors.white,
+                const SizedBox(width: 12),
+
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'QUESTION BANK',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+
+                      SizedBox(height: 3),
+
+                      Text(
+                        'ADMIN PANEL',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              onTap: () {
-                _selectSection(3);
-              },
+              ],
             ),
           ),
 
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.school_outlined,
-                color: Colors.white,
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.10)),
+
+          const SizedBox(height: 18),
+
+          // --------------------------------------------------
+          // Navigation
+          // --------------------------------------------------
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  _buildSectionLabel('MAIN MENU'),
+
+                  const SizedBox(height: 8),
+
+                  _buildMenuItem(
+                    index: 0,
+                    icon: Icons.dashboard_outlined,
+                    selectedIcon: Icons.dashboard_rounded,
+                    title: 'Dashboard',
+                  ),
+
+                  _buildMenuItem(
+                    index: 1,
+                    icon: Icons.people_outline,
+                    selectedIcon: Icons.people_rounded,
+                    title: 'Users',
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  _buildSectionLabel('QUESTION MANAGEMENT'),
+
+                  const SizedBox(height: 8),
+
+                  _buildMenuItem(
+                    index: 2,
+                    icon: Icons.account_tree_outlined,
+                    selectedIcon: Icons.account_tree_rounded,
+                    title: 'Learning Areas',
+                  ),
+
+                  _buildMenuItem(
+                    index: 3,
+                    icon: Icons.school_outlined,
+                    selectedIcon: Icons.school_rounded,
+                    title: 'Programs',
+                  ),
+
+                  _buildMenuItem(
+                    index: 4,
+                    icon: Icons.menu_book_outlined,
+                    selectedIcon: Icons.menu_book_rounded,
+                    title: 'Subjects',
+                  ),
+
+                  _buildMenuItem(
+                    index: 5,
+                    icon: Icons.topic_outlined,
+                    selectedIcon: Icons.topic_rounded,
+                    title: 'Topics',
+                  ),
+
+                  _buildMenuItem(
+                    index: 6,
+                    icon: Icons.question_mark_outlined,
+                    selectedIcon: Icons.question_mark_rounded,
+                    title: 'Questions',
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  _buildSectionLabel('EXAMINATION'),
+
+                  const SizedBox(height: 8),
+
+                  _buildMenuItem(
+                    index: 7,
+                    icon: Icons.assignment_outlined,
+                    selectedIcon: Icons.assignment_rounded,
+                    title: 'Exams',
+                  ),
+
+                  _buildMenuItem(
+                    index: 8,
+                    icon: Icons.bar_chart_outlined,
+                    selectedIcon: Icons.bar_chart_rounded,
+                    title: 'Results',
+                  ),
+                ],
               ),
-              title: const Text(
-                'Subjects',
-                style: TextStyle(
-                  color: Colors.white,
+            ),
+          ),
+
+          // --------------------------------------------------
+          // Bottom Settings
+          // --------------------------------------------------
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
+            child: Column(
+              children: [
+                Divider(color: Colors.white.withValues(alpha: 0.10)),
+
+                const SizedBox(height: 8),
+
+                _buildDisabledMenuItem(
+                  icon: Icons.settings_outlined,
+                  title: 'Settings',
                 ),
-              ),
-              onTap: () {
-                _selectSection(4);
-              },
+              ],
             ),
           ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.school_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Topics',
-                style: TextStyle(
-                  color: Colors.white,
-                ),
-              ),
-              onTap: () {
-                _selectSection(5);
-              },
-            ),
-          ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.school_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Manage Questions',
-                style: TextStyle(
-                  color: Colors.white,
-                ),
-              ),
-              onTap: () {
-                _selectSection(6);
-              },
-            ),
-          ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.assignment_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Exams',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {},
-            ),
-          ),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.bar_chart_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Results',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {},
-            ),
-          ),
-
-          const Spacer(),
-
-          Material(
-            color: Colors.transparent,
-            child: ListTile(
-              leading: const Icon(
-                Icons.settings_outlined,
-                color: Colors.white,
-              ),
-              title: const Text(
-                'Settings',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {},
-            ),
-          ),
-
-          const SizedBox(height: 20),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSectionLabel(String title) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(
+          title,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.48),
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuItem({
+    required int index,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String title,
+  }) {
+    final isSelected = _selectedIndex == index;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _selectSection(index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.white.withValues(alpha: 0.16)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              border: isSelected
+                  ? Border.all(color: Colors.white.withValues(alpha: 0.10))
+                  : null,
+            ),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Colors.white.withValues(alpha: 0.14)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(
+                    isSelected ? selectedIcon : icon,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+
+                if (isSelected)
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDisabledMenuItem({
+    required IconData icon,
+    required String title,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {},
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Icon(icon, size: 20, color: Colors.white38),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+
+                const Icon(Icons.lock_outline, size: 14, color: Colors.white30),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = _isMobile(context);
+
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+
       appBar: AppBar(
-        title: Text("Admin Dashboard"),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.blue.shade900,
+        surfaceTintColor: Colors.transparent,
+
+        title: const Text(
+          'Admin Dashboard',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.admin_panel_settings_outlined,
+                    size: 18,
+                    color: Colors.blue.shade800,
+                  ),
+
+                  const SizedBox(width: 6),
+
+                  Text(
+                    'Admin',
+                    style: TextStyle(
+                      color: Colors.blue.shade800,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
-      drawer: _isMobile(context)
-          ? Drawer(
-        child: _buildSidebar(),
-      )
-          : null,
+
+      drawer: isMobile ? Drawer(child: _buildSidebar()) : null,
+
       body: Row(
         children: [
-          // Sidebar
-          if (!_isMobile(context))
-            _buildSidebar(),
+          if (!isMobile) _buildSidebar(),
 
-          // Main content
-          Expanded(
-            child: _buildMainContent(),
-          ),
+          Expanded(child: _buildMainContent()),
         ],
       ),
     );

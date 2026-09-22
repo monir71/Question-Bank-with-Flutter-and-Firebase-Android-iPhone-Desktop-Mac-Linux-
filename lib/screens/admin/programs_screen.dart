@@ -29,7 +29,6 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
   @override
   void initState() {
     super.initState();
-
     _loadPrograms();
   }
 
@@ -41,8 +40,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
       ]);
 
       final programs = results[0] as List<Program>;
-      final learningAreas =
-      results[1] as List<LearningArea>;
+      final learningAreas = results[1] as List<LearningArea>;
 
       if (!mounted) {
         return;
@@ -82,6 +80,22 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
     return learningArea.name;
   }
 
+  String _getParentProgramName(Program program) {
+    if (program.parentProgramId == null) {
+      return '—';
+    }
+
+    final parentProgram = _programs.where(
+          (item) => item.programId == program.parentProgramId,
+    );
+
+    if (parentProgram.isEmpty) {
+      return '—';
+    }
+
+    return parentProgram.first.name;
+  }
+
   Future<void> _showAddProgramDialog() async {
     if (_learningAreas.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,8 +109,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
       return;
     }
 
-    final result =
-    await showDialog<Map<String, dynamic>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) {
         return AddProgramDialog(
@@ -117,11 +130,9 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
 
     final program = Program(
       programId: programId,
-      learningAreaId:
-      result['learningAreaId'] as String,
+      learningAreaId: result['learningAreaId'] as String,
       name: result['name'] as String,
-      parentProgramId:
-      result['parentProgramId'] as String?,
+      parentProgramId: result['parentProgramId'] as String?,
       isActive: true,
       sortOrder: result['sortOrder'] as int,
       createdAt: DateTime.now(),
@@ -139,6 +150,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
+          behavior: SnackBarBehavior.floating,
           content: Text(
             'Program added successfully.',
           ),
@@ -151,6 +163,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          behavior: SnackBarBehavior.floating,
           content: Text(
             'Failed to add program: $e',
           ),
@@ -159,291 +172,68 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Programs',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              ElevatedButton.icon(
-                onPressed: _showAddProgramDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('Add Program'),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            'Manage programs under each learning area',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-            ),
-          ),
-
-          const SizedBox(height: 30),
-
-          Expanded(
-            child: _buildContent(),
-          ),
-        ],
-      ),
+  Future<void> _showEditProgramDialog(
+      Program program,
+      ) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return EditProgramDialog(
+          program: program,
+          learningAreas: _learningAreas,
+          programs: _programs,
+        );
+      },
     );
-  }
 
-  Widget _buildContent() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+    if (result == null) {
+      return;
     }
 
-    if (_errorMessage != null) {
-      return Center(
-        child: Text(
-          _errorMessage!,
-          style: const TextStyle(
-            color: Colors.red,
-          ),
-        ),
-      );
-    }
-
-    if (_programs.isEmpty) {
-      return const Center(
-        child: Text(
-          'No programs found.',
-          style: TextStyle(
-            fontSize: 18,
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 2,
-      child: Column(
-        children: [
-          _buildHeader(),
-
-          const Divider(height: 1),
-
-          Expanded(
-            child: ListView.builder(
-              itemCount: _programs.length,
-              itemBuilder: (context, index) {
-                final program = _programs[index];
-
-                return _buildProgramRow(program);
-              },
-            ),
-          ),
-        ],
-      ),
+    final updatedProgram = Program(
+      programId: program.programId,
+      learningAreaId: result['learningAreaId'] as String,
+      name: result['name'] as String,
+      parentProgramId: result['parentProgramId'] as String?,
+      isActive: program.isActive,
+      sortOrder: result['sortOrder'] as int,
+      createdAt: program.createdAt,
+      updatedAt: DateTime.now(),
     );
-  }
 
-  Widget _buildHeader() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 14,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              'Program',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Learning Area',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Parent Program',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 1,
-            child: Text(
-              'Order',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Status',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          SizedBox(
-            width: 80,
-            child: Text(
-              'Action',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProgramRow(Program program) {
-    String parentProgramName = '—';
-
-    if (program.parentProgramId != null) {
-      final parentProgram = _programs.where(
-            (item) =>
-        item.programId ==
-            program.parentProgramId,
+    try {
+      await _programService.updateProgram(
+        updatedProgram,
       );
 
-      if (parentProgram.isNotEmpty) {
-        parentProgramName =
-            parentProgram.first.name;
+      await _loadPrograms();
+
+      if (!mounted) {
+        return;
       }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Program updated successfully.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Failed to update program: $e',
+          ),
+        ),
+      );
     }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 12,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              program.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Text(
-              _getLearningAreaName(
-                program.learningAreaId,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Text(
-              parentProgramName,
-            ),
-          ),
-
-          Expanded(
-            flex: 1,
-            child: Text(
-              program.sortOrder.toString(),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Icon(
-                  program.isActive
-                      ? Icons.check_circle_outline
-                      : Icons.cancel_outlined,
-                  size: 18,
-                  color: program.isActive
-                      ? Colors.green
-                      : Colors.red,
-                ),
-
-                const SizedBox(width: 6),
-
-                Text(
-                  program.isActive
-                      ? 'Active'
-                      : 'Inactive',
-                ),
-              ],
-            ),
-          ),
-
-          Expanded(
-            flex: 1,
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: program.isActive
-                      ? 'Deactivate'
-                      : 'Activate',
-                  icon: Icon(
-                    program.isActive
-                        ? Icons.toggle_on
-                        : Icons.toggle_off,
-                    color: program.isActive
-                        ? Colors.green
-                        : Colors.grey,
-                  ),
-                  onPressed: () {
-                    _toggleProgramStatus(program);
-                  },
-                ),
-
-                IconButton(
-                  tooltip: 'Edit',
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    _showEditProgramDialog(program);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _toggleProgramStatus(
@@ -465,6 +255,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          behavior: SnackBarBehavior.floating,
           content: Text(
             newStatus
                 ? 'Program activated successfully.'
@@ -479,6 +270,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          behavior: SnackBarBehavior.floating,
           content: Text(
             'Failed to update program status: $e',
           ),
@@ -487,68 +279,466 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
     }
   }
 
-  Future<void> _showEditProgramDialog(
-      Program program,
-      ) async {
-    final result =
-    await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) {
-        return EditProgramDialog(
-          program: program,
-          learningAreas: _learningAreas,
-          programs: _programs,
-        );
-      },
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPageHeader(),
+
+          const SizedBox(height: 24),
+
+          Expanded(
+            child: _buildContent(),
+          ),
+        ],
+      ),
     );
+  }
 
-    if (result == null) {
-      return;
-    }
-
-    final updatedProgram = Program(
-      programId: program.programId,
-      learningAreaId:
-      result['learningAreaId'] as String,
-      name: result['name'] as String,
-      parentProgramId:
-      result['parentProgramId'] as String?,
-      isActive: program.isActive,
-      sortOrder: result['sortOrder'] as int,
-      createdAt: program.createdAt,
-      updatedAt: DateTime.now(),
-    );
-
-    try {
-      await _programService.updateProgram(
-        updatedProgram,
-      );
-
-      await _loadPrograms();
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Program updated successfully.',
+  Widget _buildPageHeader() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            Icons.account_tree_outlined,
+            color: Colors.blue.shade900,
+            size: 26,
           ),
         ),
-      );
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to update program: $e',
+        const SizedBox(width: 14),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Programs',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 4),
+
+              Text(
+                'Manage programs and their hierarchy '
+                    'under each learning area',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
           ),
         ),
+
+        const SizedBox(width: 16),
+
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '${_programs.length} Programs',
+            style: TextStyle(
+              color: Colors.blue.shade900,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 12),
+
+        ElevatedButton.icon(
+          onPressed: _showAddProgramDialog,
+          icon: const Icon(Icons.add),
+          label: const Text('Add Program'),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 14,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
       );
     }
+
+    if (_errorMessage != null) {
+      return _buildErrorState();
+    }
+
+    if (_programs.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            _buildTableHeader(),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.separated(
+                itemCount: _programs.length,
+                separatorBuilder: (context, index) {
+                  return const Divider(
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                  );
+                },
+                itemBuilder: (context, index) {
+                  return _buildProgramRow(
+                    _programs[index],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTableHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 14,
+      ),
+      color: Colors.grey.shade50,
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: _headerText('Program'),
+          ),
+          Expanded(
+            flex: 2,
+            child: _headerText('Learning Area'),
+          ),
+          Expanded(
+            flex: 2,
+            child: _headerText('Parent Program'),
+          ),
+          Expanded(
+            flex: 1,
+            child: _headerText('Order'),
+          ),
+          Expanded(
+            flex: 2,
+            child: _headerText('Status'),
+          ),
+          SizedBox(
+            width: 100,
+            child: _headerText('Action'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerText(String text) {
+    return Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        color: Colors.grey.shade700,
+        letterSpacing: 0.5,
+      ),
+    );
+  }
+
+  Widget _buildProgramRow(Program program) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 13,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.account_tree_outlined,
+                    size: 20,
+                    color: Colors.blue.shade900,
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: Text(
+                    program.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Expanded(
+            flex: 2,
+            child: Text(
+              _getLearningAreaName(
+                program.learningAreaId,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          Expanded(
+            flex: 2,
+            child: Text(
+              _getParentProgramName(program),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          Expanded(
+            flex: 1,
+            child: Text(
+              program.sortOrder.toString(),
+            ),
+          ),
+
+          Expanded(
+            flex: 2,
+            child: _buildStatusCell(
+              program.isActive,
+            ),
+          ),
+
+          SizedBox(
+            width: 100,
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: program.isActive
+                      ? 'Deactivate'
+                      : 'Activate',
+                  onPressed: () {
+                    _toggleProgramStatus(program);
+                  },
+                  icon: Icon(
+                    program.isActive
+                        ? Icons.toggle_on
+                        : Icons.toggle_off,
+                    color: program.isActive
+                        ? Colors.green
+                        : Colors.grey,
+                    size: 28,
+                  ),
+                ),
+
+                IconButton(
+                  tooltip: 'Edit',
+                  onPressed: () {
+                    _showEditProgramDialog(program);
+                  },
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusCell(bool isActive) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isActive
+              ? Icons.check_circle_outline
+              : Icons.cancel_outlined,
+          size: 18,
+          color: isActive
+              ? Colors.green
+              : Colors.red,
+        ),
+
+        const SizedBox(width: 6),
+
+        Text(
+          isActive ? 'Active' : 'Inactive',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            color: isActive
+                ? Colors.green.shade700
+                : Colors.red.shade700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.account_tree_outlined,
+              size: 36,
+              color: Colors.blue.shade900,
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          const Text(
+            'No programs found',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Text(
+            'Create your first program to start building '
+                'the learning hierarchy.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 15,
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          ElevatedButton.icon(
+            onPressed: _showAddProgramDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('Add Program'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 56,
+            color: Colors.red.shade400,
+          ),
+
+          const SizedBox(height: 16),
+
+          const Text(
+            'Unable to load programs',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24,
+            ),
+            child: Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _isLoading = true;
+                _errorMessage = null;
+              });
+
+              _loadPrograms();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
 }

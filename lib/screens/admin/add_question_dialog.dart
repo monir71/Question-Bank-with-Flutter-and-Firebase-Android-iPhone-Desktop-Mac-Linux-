@@ -1,9 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:questionbank/models/program.dart';
 import 'package:questionbank/models/subject.dart';
 import 'package:questionbank/models/topic.dart';
 
 import '../../models/question.dart';
+import '../../services/question_service.dart';
 
 class AddQuestionDialog extends StatefulWidget {
   final List<Program> programs;
@@ -57,6 +60,9 @@ class _AddQuestionDialogState
   final List<TextEditingController> _criterionMarkControllers = [];
 
   final _formKey = GlobalKey<FormState>();
+
+  final QuestionService _questionService =
+  QuestionService();
 
   @override
   void dispose() {
@@ -227,6 +233,182 @@ class _AddQuestionDialogState
       case DifficultyLevel.hard:
         return 'Hard';
     }
+  }
+
+  bool _validateTrueFalse() {
+    return _trueFalseAnswer != null;
+  }
+
+  bool _validateMultipleChoice() {
+    for (final controller in _optionControllers) {
+      if (controller.text.trim().isEmpty) {
+        return false;
+      }
+    }
+
+    if (_correctOptionIndexes.isEmpty) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool _validateWrittenQuestion() {
+    if (_referenceAnswerController.text.trim().isEmpty) {
+      return false;
+    }
+
+    if (_selectedAssessmentType == AssessmentType.manual ||
+        _selectedAssessmentType == AssessmentType.hybrid) {
+      if (_criterionControllers.isEmpty) {
+        return false;
+      }
+
+      for (int i = 0; i < _criterionControllers.length; i++) {
+        if (_criterionControllers[i].text.trim().isEmpty) {
+          return false;
+        }
+
+        final criterionMarks = double.tryParse(
+          _criterionMarkControllers[i].text.trim(),
+        );
+
+        if (criterionMarks == null || criterionMarks <= 0) {
+          return false;
+        }
+      }
+
+      final questionMarks = double.tryParse(
+        _marksController.text.trim(),
+      );
+
+      if (questionMarks == null) {
+        return false;
+      }
+
+      final totalCriterionMarks =
+      _criterionMarkControllers.fold<double>(
+        0,
+            (total, controller) {
+          return total +
+              (double.tryParse(controller.text.trim()) ?? 0);
+        },
+      );
+
+      if (totalCriterionMarks != questionMarks) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Question _buildQuestion() {
+    final questionId = FirebaseFirestore.instance
+        .collection('questions')
+        .doc()
+        .id;
+
+    final options = <QuestionOption>[];
+    final correctAnswers = <String>[];
+
+    if (_selectedQuestionType == QuestionType.multiple) {
+      for (int i = 0; i < _optionControllers.length; i++) {
+        final optionId = FirebaseFirestore.instance
+            .collection('questions')
+            .doc()
+            .id;
+
+        options.add(
+          QuestionOption(
+            optionId: optionId,
+            optionText: _optionControllers[i].text.trim(),
+          ),
+        );
+
+        if (_correctOptionIndexes.contains(i)) {
+          correctAnswers.add(optionId);
+        }
+      }
+    }
+
+    if (_selectedQuestionType == QuestionType.trueFalse) {
+      const trueOptionId = 'true';
+      const falseOptionId = 'false';
+
+      options.add(
+        const QuestionOption(
+          optionId: trueOptionId,
+          optionText: 'True',
+        ),
+      );
+
+      options.add(
+        const QuestionOption(
+          optionId: falseOptionId,
+          optionText: 'False',
+        ),
+      );
+
+      correctAnswers.add(
+        _trueFalseAnswer == true
+            ? trueOptionId
+            : falseOptionId,
+      );
+    }
+
+    WrittenAssessment? writtenAssessment;
+
+    if (_selectedQuestionType == QuestionType.written) {
+      final criteria = <AssessmentCriterion>[];
+
+      for (int i = 0; i < _criterionControllers.length; i++) {
+        final criterionId = FirebaseFirestore.instance
+            .collection('questions')
+            .doc()
+            .id;
+
+        criteria.add(
+          AssessmentCriterion(
+            criterionId: criterionId,
+            criterion: _criterionControllers[i].text.trim(),
+            marks: double.parse(
+              _criterionMarkControllers[i].text.trim(),
+            ),
+          ),
+        );
+      }
+
+      writtenAssessment = WrittenAssessment(
+        assessmentType: _selectedAssessmentType,
+        referenceAnswer:
+        _referenceAnswerController.text.trim(),
+        criteria: criteria,
+      );
+    }
+
+    return Question(
+      questionId: questionId,
+      questionDescription:
+      _questionDescriptionController.text.trim(),
+      programId: _selectedProgramId!,
+      subjectId: _selectedSubjectId!,
+      topicId: _selectedTopicId!,
+      questionType: _selectedQuestionType,
+      difficulty: _selectedDifficulty,
+      options: options,
+      correctAnswers: correctAnswers,
+      writtenAssessment: writtenAssessment,
+      marks: double.parse(
+        _marksController.text.trim(),
+      ),
+      createdBy: FirebaseAuth.instance.currentUser!.uid,
+      status: QuestionStatus.approved,
+      approvedBy: null,
+      approvedAt: null,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
   }
 
   @override
@@ -439,12 +621,20 @@ class _AddQuestionDialogState
                 TextFormField(
                   controller: _marksController,
                   validator: (value) {
-                    if(value == null || value.trim().isEmpty) {
+                    if (value == null || value.trim().isEmpty) {
                       return "Marks can't be left empty.";
                     }
-                    if(int.parse(value) < 1) {
-                      return "Marks should be more than 0";
+
+                    final marks = double.tryParse(value.trim());
+
+                    if (marks == null) {
+                      return "Please enter a valid number.";
                     }
+
+                    if (marks <= 0) {
+                      return "Marks should be more than 0.";
+                    }
+
                     return null;
                   },
                   keyboardType: const TextInputType.numberWithOptions(
@@ -735,9 +925,83 @@ class _AddQuestionDialogState
           child: const Text('Cancel'),
         ),
         ElevatedButton.icon(
-          onPressed: () {
-            if (_formKey.currentState!.validate()) {
-              debugPrint('Form validation passed.');
+          onPressed: () async {
+            if (!_formKey.currentState!.validate()) {
+              return;
+            }
+
+            if (_selectedQuestionType == QuestionType.multiple) {
+              final isValid = _validateMultipleChoice();
+
+              if (!isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Please enter all options and select at least one correct answer.',
+                    ),
+                  ),
+                );
+
+                return;
+              }
+            }
+
+            if (_selectedQuestionType == QuestionType.trueFalse) {
+              final isValid = _validateTrueFalse();
+
+              if (!isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Please select True or False.',
+                    ),
+                  ),
+                );
+
+                return;
+              }
+            }
+
+            if (_selectedQuestionType == QuestionType.written) {
+              final isValid = _validateWrittenQuestion();
+
+              if (!isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Please complete the written assessment details correctly.',
+                    ),
+                  ),
+                );
+
+                return;
+              }
+            }
+
+            final question = _buildQuestion();
+
+            try {
+              await _questionService.createAdminQuestion(
+                question,
+              );
+
+              if (!mounted) {
+                return;
+              }
+
+              Navigator.of(context).pop(true);
+            } catch (e) {
+              if (!mounted) {
+                return;
+              }
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Failed to save question: $e',
+                  ),
+                ),
+              );
             }
           },
           icon: const Icon(Icons.save),
