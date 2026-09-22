@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:questionbank/models/automatic_question_selection.dart';
 import 'package:questionbank/models/exam.dart';
 import 'package:questionbank/models/program.dart';
 import 'package:questionbank/models/subject.dart';
@@ -29,16 +30,21 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
   final ExamService _examService = ExamService();
 
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _nameController =
+  TextEditingController();
 
-  final TextEditingController _durationController = TextEditingController(
-    text: '30',
-  );
+  final TextEditingController _descriptionController =
+  TextEditingController();
 
-  final TextEditingController _passPercentageController = TextEditingController(
-    text: '40',
-  );
+  final TextEditingController _durationController =
+  TextEditingController(text: '30');
+
+  final TextEditingController _passPercentageController =
+  TextEditingController(text: '40');
+
+  /// Number of questions requested for automatic selection.
+  final TextEditingController _automaticQuestionCountController =
+  TextEditingController(text: '20');
 
   String? _selectedProgramId;
 
@@ -48,6 +54,15 @@ class _AddExamDialogState extends State<AddExamDialog> {
   ExamQuestionSelectionMode _questionSelectionMode =
       ExamQuestionSelectionMode.manual;
 
+  DifficultySelectionMode _difficultyMode =
+      DifficultySelectionMode.any;
+
+  int _easyQuestionCount = 0;
+  int _mediumQuestionCount = 0;
+  int _hardQuestionCount = 0;
+
+  bool _randomizeSelection = true;
+
   bool _randomizeQuestions = false;
   bool _randomizeOptions = false;
 
@@ -55,9 +70,11 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
   bool get _isEditing => widget.exam != null;
 
-  String get _dialogTitle => _isEditing ? 'Edit Exam' : 'Add Exam';
+  String get _dialogTitle =>
+      _isEditing ? 'Edit Exam' : 'Add Exam';
 
-  String get _saveButtonText => _isEditing ? 'Update Exam' : 'Create Exam';
+  String get _saveButtonText =>
+      _isEditing ? 'Update Exam' : 'Create Exam';
 
   @override
   void initState() {
@@ -80,18 +97,51 @@ class _AddExamDialogState extends State<AddExamDialog> {
     _nameController.text = exam.examName;
     _descriptionController.text = exam.description;
 
-    _durationController.text = exam.durationMinutes.toString();
+    _durationController.text =
+        exam.durationMinutes.toString();
 
-    _passPercentageController.text = exam.passPercentage.toString();
+    _passPercentageController.text =
+        exam.passPercentage.toString();
 
     _selectedProgramId = exam.programId;
 
     _selectedSubjectIds.addAll(exam.subjectIds);
 
-    _questionSelectionMode = exam.questionSelectionMode;
+    _questionSelectionMode =
+        exam.questionSelectionMode;
 
-    _randomizeQuestions = exam.randomizeQuestions;
-    _randomizeOptions = exam.randomizeOptions;
+    _randomizeQuestions =
+        exam.randomizeQuestions;
+
+    _randomizeOptions =
+        exam.randomizeOptions;
+
+    // ---------------------------------------------------------
+    // Load automatic question selection settings
+    // ---------------------------------------------------------
+
+    final automaticSelection =
+        exam.automaticQuestionSelection;
+
+    if (automaticSelection != null) {
+      _automaticQuestionCountController.text =
+          automaticSelection.questionCount.toString();
+
+      _difficultyMode =
+          automaticSelection.difficultyMode;
+
+      _easyQuestionCount =
+          automaticSelection.difficultyDistribution.easy;
+
+      _mediumQuestionCount =
+          automaticSelection.difficultyDistribution.medium;
+
+      _hardQuestionCount =
+          automaticSelection.difficultyDistribution.hard;
+
+      _randomizeSelection =
+          automaticSelection.randomizeSelection;
+    }
   }
 
   @override
@@ -100,8 +150,334 @@ class _AddExamDialogState extends State<AddExamDialog> {
     _descriptionController.dispose();
     _durationController.dispose();
     _passPercentageController.dispose();
+    _automaticQuestionCountController.dispose();
 
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Automatic Selection Rules
+  // ---------------------------------------------------------------------------
+
+  Widget _buildAutomaticSelectionRules() {
+    final isCustomDifficulty =
+        _difficultyMode ==
+            DifficultySelectionMode.custom;
+
+    final totalDifficultyQuestions =
+        _easyQuestionCount +
+            _mediumQuestionCount +
+            _hardQuestionCount;
+
+    final requestedQuestionCount =
+        int.tryParse(
+          _automaticQuestionCountController.text.trim(),
+        ) ??
+            0;
+
+    final distributionMatches =
+        totalDifficultyQuestions ==
+            requestedQuestionCount;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Automatic Selection Rules',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Configure how the system should select questions.',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // -----------------------------------------------------
+          // Number of questions
+          // -----------------------------------------------------
+
+          TextFormField(
+            controller:
+            _automaticQuestionCountController,
+            keyboardType:
+            TextInputType.number,
+            decoration:
+            const InputDecoration(
+              labelText:
+              'Number of Questions',
+              hintText: 'e.g. 20',
+              prefixIcon: Icon(
+                Icons.format_list_numbered_outlined,
+              ),
+              border:
+              OutlineInputBorder(),
+            ),
+            validator: (value) {
+              if (_questionSelectionMode !=
+                  ExamQuestionSelectionMode
+                      .automatic) {
+                return null;
+              }
+
+              final number =
+              int.tryParse(
+                value?.trim() ?? '',
+              );
+
+              if (number == null ||
+                  number <= 0) {
+                return 'Enter a valid number.';
+              }
+
+              return null;
+            },
+            onChanged: (_) {
+              setState(() {});
+            },
+          ),
+
+          const SizedBox(height: 14),
+
+          // -----------------------------------------------------
+          // Difficulty
+          // -----------------------------------------------------
+
+          const Text(
+            'Difficulty Distribution',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          RadioGroup<
+              DifficultySelectionMode>(
+            groupValue: _difficultyMode,
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+
+              setState(() {
+                _difficultyMode = value;
+              });
+            },
+            child: Column(
+              children: [
+                RadioListTile<
+                    DifficultySelectionMode>(
+                  value:
+                  DifficultySelectionMode.any,
+                  contentPadding:
+                  EdgeInsets.zero,
+                  dense: true,
+                  title: const Text(
+                    'Any Difficulty',
+                    style: TextStyle(
+                      fontSize: 13,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Select questions from any difficulty level.',
+                    style: TextStyle(
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                RadioListTile<
+                    DifficultySelectionMode>(
+                  value:
+                  DifficultySelectionMode
+                      .custom,
+                  contentPadding:
+                  EdgeInsets.zero,
+                  dense: true,
+                  title: const Text(
+                    'Custom Distribution',
+                    style: TextStyle(
+                      fontSize: 13,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Specify how many Easy, Medium and Hard questions to select.',
+                    style: TextStyle(
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // -----------------------------------------------------
+          // Custom difficulty
+          // -----------------------------------------------------
+
+          if (isCustomDifficulty) ...[
+            const SizedBox(height: 8),
+
+            _buildDifficultyCountField(
+              label: 'Easy Questions',
+              value: _easyQuestionCount,
+              icon: Icons
+                  .sentiment_satisfied_outlined,
+              onChanged: (value) {
+                setState(() {
+                  _easyQuestionCount = value;
+                });
+              },
+            ),
+
+            const SizedBox(height: 10),
+
+            _buildDifficultyCountField(
+              label: 'Medium Questions',
+              value: _mediumQuestionCount,
+              icon: Icons
+                  .sentiment_neutral_outlined,
+              onChanged: (value) {
+                setState(() {
+                  _mediumQuestionCount = value;
+                });
+              },
+            ),
+
+            const SizedBox(height: 10),
+
+            _buildDifficultyCountField(
+              label: 'Hard Questions',
+              value: _hardQuestionCount,
+              icon: Icons
+                  .sentiment_dissatisfied_outlined,
+              onChanged: (value) {
+                setState(() {
+                  _hardQuestionCount = value;
+                });
+              },
+            ),
+
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                Icon(
+                  distributionMatches
+                      ? Icons.check_circle_outline
+                      : Icons.warning_amber_outlined,
+                  size: 18,
+                  color: distributionMatches
+                      ? Colors.green.shade700
+                      : Colors.orange.shade700,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Distribution total: '
+                        '$totalDifficultyQuestions / '
+                        '$requestedQuestionCount',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                      FontWeight.w600,
+                      color:
+                      distributionMatches
+                          ? Colors.green
+                          .shade700
+                          : Colors.orange
+                          .shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 12),
+
+          // -----------------------------------------------------
+          // Random selection
+          // -----------------------------------------------------
+
+          CheckboxListTile(
+            value: _randomizeSelection,
+            contentPadding:
+            EdgeInsets.zero,
+            dense: true,
+            title: const Text(
+              'Randomize Selection',
+              style: TextStyle(
+                fontSize: 13,
+              ),
+            ),
+            subtitle: const Text(
+              'Select questions randomly from the eligible question pool.',
+              style: TextStyle(
+                fontSize: 11,
+              ),
+            ),
+            secondary: const Icon(
+              Icons.shuffle_outlined,
+            ),
+            onChanged: _isSaving
+                ? null
+                : (value) {
+              setState(() {
+                _randomizeSelection =
+                    value ?? true;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Difficulty count field
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDifficultyCountField({
+    required String label,
+    required int value,
+    required IconData icon,
+    required ValueChanged<int> onChanged,
+  }) {
+    return TextFormField(
+      initialValue: value.toString(),
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        border:
+        const OutlineInputBorder(),
+      ),
+      onChanged: (text) {
+        final parsed =
+            int.tryParse(text) ?? 0;
+
+        onChanged(
+          parsed < 0 ? 0 : parsed,
+        );
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -114,10 +490,19 @@ class _AddExamDialogState extends State<AddExamDialog> {
     }
 
     final subjects = widget.subjects
-        .where((subject) => subject.programId == _selectedProgramId)
+        .where(
+          (subject) =>
+      subject.programId ==
+          _selectedProgramId,
+    )
         .toList();
 
-    subjects.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    subjects.sort(
+          (a, b) =>
+          a.sortOrder.compareTo(
+            b.sortOrder,
+          ),
+    );
 
     return subjects;
   }
@@ -132,7 +517,10 @@ class _AddExamDialogState extends State<AddExamDialog> {
     }
 
     return _availableSubjects.every(
-      (subject) => _selectedSubjectIds.contains(subject.subjectId),
+          (subject) =>
+          _selectedSubjectIds.contains(
+            subject.subjectId,
+          ),
     );
   }
 
@@ -151,7 +539,12 @@ class _AddExamDialogState extends State<AddExamDialog> {
       } else {
         _selectedSubjectIds
           ..clear()
-          ..addAll(_availableSubjects.map((subject) => subject.subjectId));
+          ..addAll(
+            _availableSubjects.map(
+                  (subject) =>
+              subject.subjectId,
+            ),
+          );
       }
     });
   }
@@ -162,12 +555,94 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
   void _toggleSubject(String subjectId) {
     setState(() {
-      if (_selectedSubjectIds.contains(subjectId)) {
-        _selectedSubjectIds.remove(subjectId);
+      if (_selectedSubjectIds
+          .contains(subjectId)) {
+        _selectedSubjectIds
+            .remove(subjectId);
       } else {
-        _selectedSubjectIds.add(subjectId);
+        _selectedSubjectIds
+            .add(subjectId);
       }
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build automatic selection configuration
+  // ---------------------------------------------------------------------------
+
+  AutomaticQuestionSelection?
+  _buildAutomaticQuestionSelection() {
+    if (_questionSelectionMode !=
+        ExamQuestionSelectionMode.automatic) {
+      return null;
+    }
+
+    final questionCount =
+        int.tryParse(
+          _automaticQuestionCountController
+              .text
+              .trim(),
+        ) ??
+            0;
+
+    return AutomaticQuestionSelection(
+      questionCount: questionCount,
+      difficultyMode: _difficultyMode,
+      difficultyDistribution:
+      DifficultyDistribution(
+        easy: _easyQuestionCount,
+        medium: _mediumQuestionCount,
+        hard: _hardQuestionCount,
+      ),
+      randomizeSelection:
+      _randomizeSelection,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validate automatic selection rules
+  // ---------------------------------------------------------------------------
+
+  bool _validateAutomaticSelection() {
+    if (_questionSelectionMode !=
+        ExamQuestionSelectionMode.automatic) {
+      return true;
+    }
+
+    final questionCount =
+    int.tryParse(
+      _automaticQuestionCountController
+          .text
+          .trim(),
+    );
+
+    if (questionCount == null ||
+        questionCount <= 0) {
+      _showMessage(
+        'Please enter a valid number of questions.',
+        isError: true,
+      );
+      return false;
+    }
+
+    if (_difficultyMode ==
+        DifficultySelectionMode.custom) {
+      final distributionTotal =
+          _easyQuestionCount +
+              _mediumQuestionCount +
+              _hardQuestionCount;
+
+      if (distributionTotal !=
+          questionCount) {
+        _showMessage(
+          'Easy, Medium and Hard question counts must total $questionCount.',
+          isError: true,
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -175,28 +650,52 @@ class _AddExamDialogState extends State<AddExamDialog> {
   // ---------------------------------------------------------------------------
 
   Future<void> _saveExam() async {
-    if (!_formKey.currentState!.validate()) {
+    if (!_formKey.currentState!
+        .validate()) {
       return;
     }
 
     if (_selectedSubjectIds.isEmpty) {
-      _showMessage('Please select at least one subject.', isError: true);
+      _showMessage(
+        'Please select at least one subject.',
+        isError: true,
+      );
       return;
     }
 
-    final duration = int.tryParse(_durationController.text.trim());
+    if (!_validateAutomaticSelection()) {
+      return;
+    }
 
-    final passPercentage = double.tryParse(
-      _passPercentageController.text.trim(),
+    final duration =
+    int.tryParse(
+      _durationController.text
+          .trim(),
     );
 
-    if (duration == null || duration <= 0) {
-      _showMessage('Please enter a valid duration.', isError: true);
+    final passPercentage =
+    double.tryParse(
+      _passPercentageController
+          .text
+          .trim(),
+    );
+
+    if (duration == null ||
+        duration <= 0) {
+      _showMessage(
+        'Please enter a valid duration.',
+        isError: true,
+      );
       return;
     }
 
-    if (passPercentage == null || passPercentage < 0 || passPercentage > 100) {
-      _showMessage('Pass percentage must be between 0 and 100.', isError: true);
+    if (passPercentage == null ||
+        passPercentage < 0 ||
+        passPercentage > 100) {
+      _showMessage(
+        'Pass percentage must be between 0 and 100.',
+        isError: true,
+      );
       return;
     }
 
@@ -205,33 +704,57 @@ class _AddExamDialogState extends State<AddExamDialog> {
     });
 
     try {
+      final automaticSelection =
+      _buildAutomaticQuestionSelection();
+
       // -----------------------------------------------------------------------
       // EDIT EXISTING EXAM
       // -----------------------------------------------------------------------
 
       if (_isEditing) {
-        final existingExam = widget.exam!;
+        final existingExam =
+        widget.exam!;
 
-        final updatedExam = existingExam.copyWith(
-          examName: _nameController.text.trim(),
-          description: _descriptionController.text.trim(),
-          programId: _selectedProgramId,
-          subjectIds: _selectedSubjectIds.toList(),
-          questionSelectionMode: _questionSelectionMode,
-          durationMinutes: duration,
-          passPercentage: passPercentage,
-          randomizeQuestions: _randomizeQuestions,
-          randomizeOptions: _randomizeOptions,
-          updatedAt: DateTime.now(),
+        final updatedExam =
+        existingExam.copyWith(
+          examName:
+          _nameController.text
+              .trim(),
+          description:
+          _descriptionController
+              .text
+              .trim(),
+          programId:
+          _selectedProgramId,
+          subjectIds:
+          _selectedSubjectIds
+              .toList(),
+          questionSelectionMode:
+          _questionSelectionMode,
+          automaticQuestionSelection:
+          automaticSelection,
+          durationMinutes:
+          duration,
+          passPercentage:
+          passPercentage,
+          randomizeQuestions:
+          _randomizeQuestions,
+          randomizeOptions:
+          _randomizeOptions,
+          updatedAt:
+          DateTime.now(),
         );
 
-        await _examService.updateExam(updatedExam);
+        await _examService
+            .updateExam(updatedExam);
 
         if (!mounted) {
           return;
         }
 
-        Navigator.of(context).pop(true);
+        Navigator.of(context)
+            .pop(true);
+
         return;
       }
 
@@ -239,48 +762,79 @@ class _AddExamDialogState extends State<AddExamDialog> {
       // CREATE NEW EXAM
       // -----------------------------------------------------------------------
 
-      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUser =
+          FirebaseAuth.instance
+              .currentUser;
 
       if (currentUser == null) {
+        if (!mounted) {
+          return;
+        }
+
         setState(() {
           _isSaving = false;
         });
 
-        _showMessage('You must be logged in to create an exam.', isError: true);
+        _showMessage(
+          'You must be logged in to create an exam.',
+          isError: true,
+        );
+
         return;
       }
 
-      final examId = 'exam_${DateTime.now().millisecondsSinceEpoch}';
+      final examId =
+          'exam_${DateTime.now().millisecondsSinceEpoch}';
 
       final now = DateTime.now();
 
       final exam = Exam(
         examId: examId,
-        examName: _nameController.text.trim(),
-        description: _descriptionController.text.trim(),
-        programId: _selectedProgramId,
-        subjectIds: _selectedSubjectIds.toList(),
-        questionSelectionMode: _questionSelectionMode,
-        durationMinutes: duration,
-        totalMarks: 0,
-        passPercentage: passPercentage,
+        examName:
+        _nameController.text
+            .trim(),
+        description:
+        _descriptionController.text
+            .trim(),
+        programId:
+        _selectedProgramId,
+        subjectIds:
+        _selectedSubjectIds.toList(),
+        questionSelectionMode:
+        _questionSelectionMode,
+        automaticQuestionSelection:
+        automaticSelection,
+
+        // Actual question count is
+        // initially zero because questions
+        // have not yet been generated/attached.
         questionCount: 0,
-        randomizeQuestions: _randomizeQuestions,
-        randomizeOptions: _randomizeOptions,
+        totalMarks: 0.0,
+
+        durationMinutes: duration,
+        passPercentage:
+        passPercentage,
+        randomizeQuestions:
+        _randomizeQuestions,
+        randomizeOptions:
+        _randomizeOptions,
         isActive: true,
-        createdBy: currentUser.uid,
+        createdBy:
+        currentUser.uid,
         createdAt: now,
         updatedAt: now,
         questions: const [],
       );
 
-      await _examService.createExam(exam);
+      await _examService
+          .createExam(exam);
 
       if (!mounted) {
         return;
       }
 
-      Navigator.of(context).pop(true);
+      Navigator.of(context)
+          .pop(true);
     } catch (e) {
       if (!mounted) {
         return;
@@ -291,7 +845,9 @@ class _AddExamDialogState extends State<AddExamDialog> {
       });
 
       _showMessage(
-        _isEditing ? 'Failed to update exam.' : 'Failed to create exam.',
+        _isEditing
+            ? 'Failed to update exam.'
+            : 'Failed to create exam.',
         isError: true,
       );
     }
@@ -301,9 +857,17 @@ class _AddExamDialogState extends State<AddExamDialog> {
   // Message
   // ---------------------------------------------------------------------------
 
-  void _showMessage(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+  void _showMessage(
+      String message, {
+        required bool isError,
+      }) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior:
+        SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -312,31 +876,46 @@ class _AddExamDialogState extends State<AddExamDialog> {
   // ---------------------------------------------------------------------------
 
   Widget _buildQuestionSummary() {
-    final questionCount = widget.exam?.questionCount ?? 0;
-    final totalMarks = widget.exam?.totalMarks ?? 0;
+    final questionCount =
+        widget.exam?.questionCount ?? 0;
+
+    final totalMarks =
+        widget.exam?.totalMarks ?? 0;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding:
+      const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius:
+        BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Row(
         children: [
           Expanded(
             child: _buildSummaryItem(
-              icon: Icons.quiz_outlined,
+              icon:
+              Icons.quiz_outlined,
               label: 'Questions',
-              value: '$questionCount',
+              value:
+              '$questionCount',
             ),
           ),
-          Container(width: 1, height: 42, color: Colors.grey.shade300),
+          Container(
+            width: 1,
+            height: 42,
+            color: Colors.grey.shade300,
+          ),
           Expanded(
             child: _buildSummaryItem(
-              icon: Icons.stars_outlined,
+              icon:
+              Icons.stars_outlined,
               label: 'Total Marks',
-              value: '$totalMarks',
+              value:
+              '$totalMarks',
             ),
           ),
         ],
@@ -350,21 +929,35 @@ class _AddExamDialogState extends State<AddExamDialog> {
     required String value,
   }) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisAlignment:
+      MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 24, color: Colors.indigo),
+        Icon(
+          icon,
+          size: 24,
+          color: Colors.indigo,
+        ),
         const SizedBox(width: 10),
         Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+          CrossAxisAlignment.start,
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 12,
+                color:
+                Colors.grey.shade600,
+              ),
             ),
             const SizedBox(height: 2),
             Text(
               value,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight:
+                FontWeight.bold,
+              ),
             ),
           ],
         ),
@@ -379,25 +972,57 @@ class _AddExamDialogState extends State<AddExamDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
-      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 18),
+      titlePadding:
+      const EdgeInsets.fromLTRB(
+        24,
+        22,
+        24,
+        8,
+      ),
+      contentPadding:
+      const EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        8,
+      ),
+      actionsPadding:
+      const EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        18,
+      ),
       title: Row(
         children: [
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              color: Colors.indigo.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(11),
+            decoration:
+            BoxDecoration(
+              color: Colors.indigo
+                  .withValues(
+                alpha: 0.10,
+              ),
+              borderRadius:
+              BorderRadius.circular(
+                11,
+              ),
             ),
-            child: const Icon(Icons.assignment_outlined, color: Colors.indigo),
+            child: const Icon(
+              Icons.assignment_outlined,
+              color: Colors.indigo,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               _dialogTitle,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight:
+                FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -408,29 +1033,48 @@ class _AddExamDialogState extends State<AddExamDialog> {
           child: Form(
             key: _formKey,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
-                _buildSectionTitle('Exam Information', Icons.info_outline),
+                // -------------------------------------------------------------
+                // Exam Information
+                // -------------------------------------------------------------
+
+                _buildSectionTitle(
+                  'Exam Information',
+                  Icons.info_outline,
+                ),
+
                 const SizedBox(height: 12),
 
-                // -------------------------------------------------------------
-                // Exam name
-                // -------------------------------------------------------------
                 TextFormField(
-                  controller: _nameController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Exam Name',
-                    hintText: 'e.g. Class 9 Physics - Motion Test',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.assignment_outlined),
+                  controller:
+                  _nameController,
+                  textInputAction:
+                  TextInputAction.next,
+                  decoration:
+                  const InputDecoration(
+                    labelText:
+                    'Exam Name',
+                    hintText:
+                    'e.g. Class 9 Physics - Motion Test',
+                    border:
+                    OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      Icons
+                          .assignment_outlined,
+                    ),
                   ),
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
+                    if (value == null ||
+                        value.trim()
+                            .isEmpty) {
                       return 'Please enter exam name.';
                     }
 
-                    if (value.trim().length < 3) {
+                    if (value.trim()
+                        .length <
+                        3) {
                       return 'Exam name is too short.';
                     }
 
@@ -440,55 +1084,81 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
                 const SizedBox(height: 14),
 
-                // -------------------------------------------------------------
-                // Description
-                // -------------------------------------------------------------
                 TextFormField(
-                  controller: _descriptionController,
+                  controller:
+                  _descriptionController,
                   minLines: 2,
                   maxLines: 4,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    hintText: 'Optional exam description',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.notes_outlined),
-                    alignLabelWithHint: true,
+                  textInputAction:
+                  TextInputAction.newline,
+                  decoration:
+                  const InputDecoration(
+                    labelText:
+                    'Description',
+                    hintText:
+                    'Optional exam description',
+                    border:
+                    OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      Icons.notes_outlined,
+                    ),
+                    alignLabelWithHint:
+                    true,
                   ),
                 ),
 
                 const SizedBox(height: 24),
 
                 // -------------------------------------------------------------
-                // Exam scope
+                // Exam Scope
                 // -------------------------------------------------------------
-                _buildSectionTitle('Exam Scope', Icons.account_tree_outlined),
+
+                _buildSectionTitle(
+                  'Exam Scope',
+                  Icons
+                      .account_tree_outlined,
+                ),
+
                 const SizedBox(height: 12),
 
-                // -------------------------------------------------------------
-                // Program
-                // -------------------------------------------------------------
-                DropdownButtonFormField<String>(
-                  value: _selectedProgramId,
-                  decoration: const InputDecoration(
-                    labelText: 'Program',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.account_tree_outlined),
+                DropdownButtonFormField<
+                    String>(
+                  value:
+                  _selectedProgramId,
+                  decoration:
+                  const InputDecoration(
+                    labelText:
+                    'Program',
+                    border:
+                    OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      Icons
+                          .account_tree_outlined,
+                    ),
                   ),
-                  items: widget.programs.map((program) {
-                    return DropdownMenuItem<String>(
-                      value: program.programId,
-                      child: Text(program.name),
-                    );
-                  }).toList(),
+                  items: widget.programs
+                      .map(
+                        (program) =>
+                        DropdownMenuItem<
+                            String>(
+                          value:
+                          program.programId,
+                          child: Text(
+                            program.name,
+                          ),
+                        ),
+                  )
+                      .toList(),
                   onChanged: _isSaving
                       ? null
                       : (value) {
-                          setState(() {
-                            _selectedProgramId = value;
-                            _selectedSubjectIds.clear();
-                          });
-                        },
+                    setState(() {
+                      _selectedProgramId =
+                          value;
+                      _selectedSubjectIds
+                          .clear();
+                    });
+                  },
                   validator: (value) {
                     if (value == null) {
                       return 'Please select a program.';
@@ -500,17 +1170,19 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
                 const SizedBox(height: 16),
 
-                // -------------------------------------------------------------
-                // Subjects
-                // -------------------------------------------------------------
                 _buildSubjectSelector(),
 
                 const SizedBox(height: 24),
 
                 // -------------------------------------------------------------
-                // Question summary
+                // Question Summary
                 // -------------------------------------------------------------
-                _buildSectionTitle('Question Summary', Icons.quiz_outlined),
+
+                _buildSectionTitle(
+                  'Question Summary',
+                  Icons.quiz_outlined,
+                ),
+
                 const SizedBox(height: 12),
 
                 _buildQuestionSummary(),
@@ -518,37 +1190,71 @@ class _AddExamDialogState extends State<AddExamDialog> {
                 const SizedBox(height: 24),
 
                 // -------------------------------------------------------------
-                // Exam settings
+                // Exam Settings
                 // -------------------------------------------------------------
-                _buildSectionTitle('Exam Settings', Icons.settings_outlined),
+
+                _buildSectionTitle(
+                  'Exam Settings',
+                  Icons.settings_outlined,
+                ),
+
                 const SizedBox(height: 12),
 
-                // -------------------------------------------------------------
-                // Question selection mode
-                // -------------------------------------------------------------
                 _buildQuestionSelectionMode(),
+
+                // -------------------------------------------------------------
+                // Automatic Rules
+                // -------------------------------------------------------------
+
+                if (_questionSelectionMode ==
+                    ExamQuestionSelectionMode
+                        .automatic) ...[
+                  const SizedBox(height: 14),
+                  _buildAutomaticSelectionRules(),
+                ],
 
                 const SizedBox(height: 16),
 
                 // -------------------------------------------------------------
-                // Duration and pass percentage
+                // Duration and Pass Percentage
                 // -------------------------------------------------------------
+
                 Row(
                   children: [
                     Expanded(
-                      child: TextFormField(
-                        controller: _durationController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Duration',
-                          suffixText: 'minutes',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.timer_outlined),
+                      child:
+                      TextFormField(
+                        controller:
+                        _durationController,
+                        keyboardType:
+                        TextInputType
+                            .number,
+                        decoration:
+                        const InputDecoration(
+                          labelText:
+                          'Duration',
+                          suffixText:
+                          'minutes',
+                          border:
+                          OutlineInputBorder(),
+                          prefixIcon:
+                          Icon(
+                            Icons
+                                .timer_outlined,
+                          ),
                         ),
-                        validator: (value) {
-                          final number = int.tryParse(value?.trim() ?? '');
+                        validator:
+                            (value) {
+                          final number =
+                          int.tryParse(
+                            value?.trim() ??
+                                '',
+                          );
 
-                          if (number == null || number <= 0) {
+                          if (number ==
+                              null ||
+                              number <=
+                                  0) {
                             return 'Enter valid duration.';
                           }
 
@@ -556,23 +1262,44 @@ class _AddExamDialogState extends State<AddExamDialog> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(
+                      width: 14,
+                    ),
                     Expanded(
-                      child: TextFormField(
-                        controller: _passPercentageController,
-                        keyboardType: const TextInputType.numberWithOptions(
+                      child:
+                      TextFormField(
+                        controller:
+                        _passPercentageController,
+                        keyboardType:
+                        const TextInputType
+                            .numberWithOptions(
                           decimal: true,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'Pass Percentage',
+                        decoration:
+                        const InputDecoration(
+                          labelText:
+                          'Pass Percentage',
                           suffixText: '%',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.percent_outlined),
+                          border:
+                          OutlineInputBorder(),
+                          prefixIcon:
+                          Icon(
+                            Icons
+                                .percent_outlined,
+                          ),
                         ),
-                        validator: (value) {
-                          final number = double.tryParse(value?.trim() ?? '');
+                        validator:
+                            (value) {
+                          final number =
+                          double.tryParse(
+                            value?.trim() ??
+                                '',
+                          );
 
-                          if (number == null || number < 0 || number > 100) {
+                          if (number ==
+                              null ||
+                              number < 0 ||
+                              number > 100) {
                             return 'Enter 0–100.';
                           }
 
@@ -585,39 +1312,42 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
                 const SizedBox(height: 16),
 
-                // -------------------------------------------------------------
-                // Randomize questions
-                // -------------------------------------------------------------
                 _buildSettingTile(
-                  title: 'Randomize Questions',
+                  title:
+                  'Randomize Questions',
                   subtitle:
-                      'Show exam questions in a different order for each attempt.',
-                  value: _randomizeQuestions,
-                  onChanged: _isSaving
+                  'Show exam questions in a different order for each attempt.',
+                  value:
+                  _randomizeQuestions,
+                  onChanged:
+                  _isSaving
                       ? null
                       : (value) {
-                          setState(() {
-                            _randomizeQuestions = value;
-                          });
-                        },
+                    setState(() {
+                      _randomizeQuestions =
+                          value;
+                    });
+                  },
                 ),
 
                 const SizedBox(height: 8),
 
-                // -------------------------------------------------------------
-                // Randomize options
-                // -------------------------------------------------------------
                 _buildSettingTile(
-                  title: 'Randomize Options',
-                  subtitle: 'Randomize answer options where applicable.',
-                  value: _randomizeOptions,
-                  onChanged: _isSaving
+                  title:
+                  'Randomize Options',
+                  subtitle:
+                  'Randomize answer options where applicable.',
+                  value:
+                  _randomizeOptions,
+                  onChanged:
+                  _isSaving
                       ? null
                       : (value) {
-                          setState(() {
-                            _randomizeOptions = value;
-                          });
-                        },
+                    setState(() {
+                      _randomizeOptions =
+                          value;
+                    });
+                  },
                 ),
 
                 const SizedBox(height: 8),
@@ -625,34 +1355,54 @@ class _AddExamDialogState extends State<AddExamDialog> {
                 // -------------------------------------------------------------
                 // Information note
                 // -------------------------------------------------------------
+
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(10),
+                  padding:
+                  const EdgeInsets.all(
+                    12,
+                  ),
+                  decoration:
+                  BoxDecoration(
+                    color: Colors.blue
+                        .withValues(
+                      alpha: 0.06,
+                    ),
+                    borderRadius:
+                    BorderRadius.circular(
+                      10,
+                    ),
                     border: Border.all(
-                      color: Colors.blue.withValues(alpha: 0.15),
+                      color: Colors.blue
+                          .withValues(
+                        alpha: 0.15,
+                      ),
                     ),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start,
                     children: [
                       Icon(
                         Icons.info_outline,
                         size: 19,
-                        color: Colors.blue.shade700,
+                        color:
+                        Colors.blue.shade700,
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(
+                        width: 10,
+                      ),
                       Expanded(
                         child: Text(
                           _isEditing
                               ? 'Existing questions attached to this exam will be preserved. '
-                                    'You can manage the questions separately.'
+                              'You can manage the questions separately.'
                               : 'Questions will be added after the exam is created. '
-                                    'Question count and total marks will then be calculated automatically.',
+                              'Question count and total marks will then be calculated automatically.',
                           style: TextStyle(
                             fontSize: 12.5,
-                            color: Colors.blue.shade800,
+                            color:
+                            Colors.blue.shade800,
                             height: 1.4,
                           ),
                         ),
@@ -667,24 +1417,48 @@ class _AddExamDialogState extends State<AddExamDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          onPressed: _isSaving
+              ? null
+              : () => Navigator.of(
+            context,
+          ).pop(false),
+          child:
+          const Text('Cancel'),
         ),
         const SizedBox(width: 8),
         ElevatedButton.icon(
-          onPressed: _isSaving ? null : _saveExam,
+          onPressed:
+          _isSaving ? null : _saveExam,
           icon: _isSaving
               ? const SizedBox(
-                  width: 17,
-                  height: 17,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.save_outlined),
-          label: Text(_isSaving ? 'Saving...' : _saveButtonText),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
+            width: 17,
+            height: 17,
+            child:
+            CircularProgressIndicator(
+              strokeWidth: 2,
+            ),
+          )
+              : const Icon(
+            Icons.save_outlined,
+          ),
+          label: Text(
+            _isSaving
+                ? 'Saving...'
+                : _saveButtonText,
+          ),
+          style:
+          ElevatedButton.styleFrom(
+            padding:
+            const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 13,
+            ),
+            shape:
+            RoundedRectangleBorder(
+              borderRadius:
+              BorderRadius.circular(
+                9,
+              ),
             ),
           ),
         ),
@@ -698,78 +1472,119 @@ class _AddExamDialogState extends State<AddExamDialog> {
 
   Widget _buildQuestionSelectionMode() {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding:
+      const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius:
+        BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           const Text(
             'Question Selection',
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontWeight:
+              FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Choose how questions will be added to this exam.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 10),
-      IgnorePointer(
-        ignoring: _isSaving,
-        child: RadioGroup<ExamQuestionSelectionMode>(
-          groupValue: _questionSelectionMode,
-          onChanged: (value) {
-            if (value == null) {
-              return;
-            }
-
-            setState(() {
-              _questionSelectionMode = value;
-            });
-          },
-          child: Column(
-              children: [
-                RadioListTile<ExamQuestionSelectionMode>(
-                  value: ExamQuestionSelectionMode.manual,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text(
-                    'Manual Selection',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: const Text(
-                    'Admin selects the questions individually.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  secondary: const Icon(
-                    Icons.checklist_outlined,
-                    color: Colors.indigo,
-                  ),
-                ),
-                RadioListTile<ExamQuestionSelectionMode>(
-                  value: ExamQuestionSelectionMode.automatic,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text(
-                    'Automatic / Random Selection',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: const Text(
-                    'The system selects questions according to configured rules.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  secondary: const Icon(
-                    Icons.shuffle_outlined,
-                    color: Colors.indigo,
-                  ),
-                ),
-              ],
+            style: TextStyle(
+              fontSize: 12,
+              color:
+              Colors.grey.shade600,
             ),
           ),
-        ),
+          const SizedBox(height: 10),
+          IgnorePointer(
+            ignoring: _isSaving,
+            child: RadioGroup<
+                ExamQuestionSelectionMode>(
+              groupValue:
+              _questionSelectionMode,
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+
+                setState(() {
+                  _questionSelectionMode =
+                      value;
+                });
+              },
+              child: Column(
+                children: [
+                  RadioListTile<
+                      ExamQuestionSelectionMode>(
+                    value:
+                    ExamQuestionSelectionMode
+                        .manual,
+                    contentPadding:
+                    EdgeInsets.zero,
+                    dense: true,
+                    title: const Text(
+                      'Manual Selection',
+                      style: TextStyle(
+                        fontWeight:
+                        FontWeight.w600,
+                      ),
+                    ),
+                    subtitle:
+                    const Text(
+                      'Admin selects the questions individually.',
+                      style: TextStyle(
+                        fontSize: 12,
+                      ),
+                    ),
+                    secondary:
+                    const Icon(
+                      Icons
+                          .checklist_outlined,
+                      color:
+                      Colors.indigo,
+                    ),
+                  ),
+                  RadioListTile<
+                      ExamQuestionSelectionMode>(
+                    value:
+                    ExamQuestionSelectionMode
+                        .automatic,
+                    contentPadding:
+                    EdgeInsets.zero,
+                    dense: true,
+                    title: const Text(
+                      'Automatic / Random Selection',
+                      style: TextStyle(
+                        fontWeight:
+                        FontWeight.w600,
+                      ),
+                    ),
+                    subtitle:
+                    const Text(
+                      'The system selects questions according to configured rules.',
+                      style: TextStyle(
+                        fontSize: 12,
+                      ),
+                    ),
+                    secondary:
+                    const Icon(
+                      Icons
+                          .shuffle_outlined,
+                      color:
+                      Colors.indigo,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -780,35 +1595,58 @@ class _AddExamDialogState extends State<AddExamDialog> {
   // ---------------------------------------------------------------------------
 
   Widget _buildSubjectSelector() {
-    final subjects = _availableSubjects;
+    final subjects =
+        _availableSubjects;
 
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: Colors.grey.shade400,
+        ),
+        borderRadius:
+        BorderRadius.circular(4),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            padding:
+            const EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              8,
+            ),
             child: Row(
               children: [
-                const Icon(Icons.menu_book_outlined, size: 21),
+                const Icon(
+                  Icons
+                      .menu_book_outlined,
+                  size: 21,
+                ),
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
                     'Subjects',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight:
+                      FontWeight.w600,
+                    ),
                   ),
                 ),
-                if (_selectedProgramId != null && subjects.isNotEmpty)
+                if (_selectedProgramId !=
+                    null &&
+                    subjects.isNotEmpty)
                   Text(
                     '${_selectedSubjectIds.length}/${subjects.length}',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.indigo.shade700,
+                      fontWeight:
+                      FontWeight.w600,
+                      color: Colors
+                          .indigo.shade700,
                     ),
                   ),
               ],
@@ -816,98 +1654,171 @@ class _AddExamDialogState extends State<AddExamDialog> {
           ),
           if (_selectedProgramId == null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              padding:
+              const EdgeInsets.fromLTRB(
+                16,
+                4,
+                16,
+                16,
+              ),
               child: Text(
                 'Select a program first.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                style: TextStyle(
+                  color:
+                  Colors.grey.shade600,
+                  fontSize: 13,
+                ),
               ),
             )
           else if (subjects.isEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              padding:
+              const EdgeInsets.fromLTRB(
+                16,
+                4,
+                16,
+                16,
+              ),
               child: Text(
                 'No subjects are available for this program.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                style: TextStyle(
+                  color:
+                  Colors.grey.shade600,
+                  fontSize: 13,
+                ),
               ),
             )
           else ...[
-            const Divider(height: 1),
+              const Divider(height: 1),
 
-            // ---------------------------------------------------------------
-            // All Subjects
-            // ---------------------------------------------------------------
-            CheckboxListTile(
-              dense: true,
-              controlAffinity: ListTileControlAffinity.leading,
-              value: _allSubjectsSelected,
-              tristate: true,
-              onChanged: _isSaving ? null : (_) => _toggleAllSubjects(),
-              title: const Text(
-                'All Subjects',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: const Text(
-                'Include all subjects of this program',
-                style: TextStyle(fontSize: 12),
-              ),
-              secondary: const Icon(Icons.select_all_outlined),
-            ),
-
-            const Divider(height: 1),
-
-            // ---------------------------------------------------------------
-            // Individual subjects
-            // ---------------------------------------------------------------
-            ...subjects.map((subject) {
-              final selected = _selectedSubjectIds.contains(subject.subjectId);
-
-              return CheckboxListTile(
+              CheckboxListTile(
                 dense: true,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: selected,
+                controlAffinity:
+                ListTileControlAffinity
+                    .leading,
+                value:
+                _allSubjectsSelected,
+                tristate: true,
                 onChanged: _isSaving
                     ? null
-                    : (_) => _toggleSubject(subject.subjectId),
-                title: Text(subject.name),
-                secondary: Icon(
-                  selected
-                      ? Icons.check_circle_outline
-                      : Icons.menu_book_outlined,
-                  color: selected ? Colors.indigo : Colors.grey.shade500,
+                    : (_) =>
+                    _toggleAllSubjects(),
+                title: const Text(
+                  'All Subjects',
+                  style: TextStyle(
+                    fontWeight:
+                    FontWeight.w600,
+                  ),
                 ),
-              );
-            }),
-
-            if (_selectedSubjectIds.isNotEmpty) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: _availableSubjects
-                      .where(
-                        (subject) =>
-                            _selectedSubjectIds.contains(subject.subjectId),
-                      )
-                      .map(
-                        (subject) => Chip(
-                          label: Text(
-                            subject.name,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          deleteIcon: const Icon(Icons.close, size: 16),
-                          onDeleted: _isSaving
-                              ? null
-                              : () => _toggleSubject(subject.subjectId),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      )
-                      .toList(),
+                subtitle: const Text(
+                  'Include all subjects of this program',
+                  style: TextStyle(
+                    fontSize: 12,
+                  ),
+                ),
+                secondary: const Icon(
+                  Icons.select_all_outlined,
                 ),
               ),
+
+              const Divider(height: 1),
+
+              ...subjects.map(
+                    (subject) {
+                  final selected =
+                  _selectedSubjectIds
+                      .contains(
+                    subject.subjectId,
+                  );
+
+                  return CheckboxListTile(
+                    dense: true,
+                    controlAffinity:
+                    ListTileControlAffinity
+                        .leading,
+                    value: selected,
+                    onChanged: _isSaving
+                        ? null
+                        : (_) =>
+                        _toggleSubject(
+                          subject
+                              .subjectId,
+                        ),
+                    title:
+                    Text(subject.name),
+                    secondary: Icon(
+                      selected
+                          ? Icons
+                          .check_circle_outline
+                          : Icons
+                          .menu_book_outlined,
+                      color: selected
+                          ? Colors.indigo
+                          : Colors
+                          .grey.shade500,
+                    ),
+                  );
+                },
+              ),
+
+              if (_selectedSubjectIds
+                  .isNotEmpty) ...[
+                const Divider(height: 1),
+                Padding(
+                  padding:
+                  const EdgeInsets.fromLTRB(
+                    16,
+                    10,
+                    16,
+                    12,
+                  ),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children:
+                    _availableSubjects
+                        .where(
+                          (subject) =>
+                          _selectedSubjectIds
+                              .contains(
+                            subject
+                                .subjectId,
+                          ),
+                    )
+                        .map(
+                          (subject) =>
+                          Chip(
+                            label: Text(
+                              subject.name,
+                              style:
+                              const TextStyle(
+                                fontSize:
+                                12,
+                              ),
+                            ),
+                            deleteIcon:
+                            const Icon(
+                              Icons.close,
+                              size: 16,
+                            ),
+                            onDeleted:
+                            _isSaving
+                                ? null
+                                : () =>
+                                _toggleSubject(
+                                  subject
+                                      .subjectId,
+                                ),
+                            visualDensity:
+                            VisualDensity
+                                .compact,
+                          ),
+                    )
+                        .toList(),
+                  ),
+                ),
+              ],
             ],
-          ],
         ],
       ),
     );
@@ -917,14 +1828,25 @@ class _AddExamDialogState extends State<AddExamDialog> {
   // Section title
   // ---------------------------------------------------------------------------
 
-  Widget _buildSectionTitle(String title, IconData icon) {
+  Widget _buildSectionTitle(
+      String title,
+      IconData icon,
+      ) {
     return Row(
       children: [
-        Icon(icon, size: 19, color: Colors.indigo),
+        Icon(
+          icon,
+          size: 19,
+          color: Colors.indigo,
+        ),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight:
+            FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -938,38 +1860,54 @@ class _AddExamDialogState extends State<AddExamDialog> {
     required String title,
     required String subtitle,
     required bool value,
-    required ValueChanged<bool>? onChanged,
+    required ValueChanged<bool>?
+    onChanged,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding:
+      const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 10,
+      ),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius:
+        BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Row(
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontWeight:
+                    FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade600,
+                    color:
+                    Colors.grey.shade600,
                     height: 1.3,
                   ),
                 ),
               ],
             ),
           ),
-          Switch(value: value, onChanged: onChanged),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+          ),
         ],
       ),
     );

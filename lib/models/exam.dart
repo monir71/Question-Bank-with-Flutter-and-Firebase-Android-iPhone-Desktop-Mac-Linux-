@@ -1,6 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum ExamQuestionSelectionMode { manual, automatic }
+import 'automatic_question_selection.dart';
+
+enum ExamQuestionSelectionMode {
+  manual,
+  automatic,
+}
 
 class ExamQuestion {
   final String questionId;
@@ -66,6 +71,11 @@ class Exam {
   /// The system selects questions according to configured rules.
   final ExamQuestionSelectionMode questionSelectionMode;
 
+  /// Configuration used when questionSelectionMode is automatic.
+  ///
+  /// This is null for manually selected exams.
+  final AutomaticQuestionSelection? automaticQuestionSelection;
+
   final int durationMinutes;
   final double totalMarks;
   final double passPercentage;
@@ -85,6 +95,7 @@ class Exam {
     this.programId,
     required this.subjectIds,
     required this.questionSelectionMode,
+    this.automaticQuestionSelection,
     required this.durationMinutes,
     required this.totalMarks,
     required this.passPercentage,
@@ -106,6 +117,8 @@ class Exam {
       'programId': programId,
       'subjectIds': subjectIds,
       'questionSelectionMode': questionSelectionMode.name,
+      'automaticQuestionSelection':
+      automaticQuestionSelection?.toMap(),
       'totalMarks': totalMarks,
       'questionCount': questionCount,
       'durationMinutes': durationMinutes,
@@ -116,7 +129,9 @@ class Exam {
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
-      'questions': questions.map((question) => question.toMap()).toList(),
+      'questions': questions
+          .map((question) => question.toMap())
+          .toList(),
     };
   }
 
@@ -133,10 +148,12 @@ class Exam {
       return DateTime.now();
     }
 
-    ExamQuestionSelectionMode readQuestionSelectionMode(dynamic value) {
+    ExamQuestionSelectionMode readQuestionSelectionMode(
+        dynamic value,
+        ) {
       if (value is String) {
         return ExamQuestionSelectionMode.values.firstWhere(
-          (mode) => mode.name == value,
+              (mode) => mode.name == value,
           orElse: () => ExamQuestionSelectionMode.manual,
         );
       }
@@ -145,8 +162,19 @@ class Exam {
       return ExamQuestionSelectionMode.manual;
     }
 
-    final questionData = map['questions'];
+    AutomaticQuestionSelection? readAutomaticQuestionSelection(
+        dynamic value,
+        ) {
+      if (value is Map) {
+        return AutomaticQuestionSelection.fromMap(
+          Map<String, dynamic>.from(value),
+        );
+      }
 
+      return null;
+    }
+
+    final questionData = map['questions'];
     final subjectData = map['subjectIds'];
 
     final List<String> subjectIds;
@@ -170,24 +198,39 @@ class Exam {
       questionSelectionMode: readQuestionSelectionMode(
         map['questionSelectionMode'],
       ),
-      durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
-      totalMarks: (map['totalMarks'] as num?)?.toDouble() ?? 0.0,
-      passPercentage: (map['passPercentage'] as num?)?.toDouble() ?? 0,
-      questionCount: (map['questionCount'] as num?)?.toInt() ?? 0,
-      randomizeQuestions: map['randomizeQuestions'] as bool? ?? false,
-      randomizeOptions: map['randomizeOptions'] as bool? ?? false,
-      isActive: map['isActive'] as bool? ?? true,
-      createdBy: map['createdBy'] as String? ?? '',
-      createdAt: readDate(map['createdAt']),
-      updatedAt: readDate(map['updatedAt']),
+      automaticQuestionSelection:
+      readAutomaticQuestionSelection(
+        map['automaticQuestionSelection'],
+      ),
+      durationMinutes:
+      (map['durationMinutes'] as num?)?.toInt() ?? 0,
+      totalMarks:
+      (map['totalMarks'] as num?)?.toDouble() ?? 0.0,
+      passPercentage:
+      (map['passPercentage'] as num?)?.toDouble() ?? 0.0,
+      questionCount:
+      (map['questionCount'] as num?)?.toInt() ?? 0,
+      randomizeQuestions:
+      map['randomizeQuestions'] as bool? ?? false,
+      randomizeOptions:
+      map['randomizeOptions'] as bool? ?? false,
+      isActive:
+      map['isActive'] as bool? ?? true,
+      createdBy:
+      map['createdBy'] as String? ?? '',
+      createdAt:
+      readDate(map['createdAt']),
+      updatedAt:
+      readDate(map['updatedAt']),
       questions: questionData is List
           ? questionData
-                .whereType<Map>()
-                .map(
-                  (item) =>
-                      ExamQuestion.fromMap(Map<String, dynamic>.from(item)),
-                )
-                .toList()
+          .whereType<Map>()
+          .map(
+            (item) => ExamQuestion.fromMap(
+          Map<String, dynamic>.from(item),
+        ),
+      )
+          .toList()
           : const [],
     );
   }
@@ -199,6 +242,8 @@ class Exam {
     String? programId,
     List<String>? subjectIds,
     ExamQuestionSelectionMode? questionSelectionMode,
+    AutomaticQuestionSelection?
+    automaticQuestionSelection,
     int? durationMinutes,
     double? totalMarks,
     double? passPercentage,
@@ -218,18 +263,35 @@ class Exam {
       programId: programId ?? this.programId,
       subjectIds: subjectIds ?? this.subjectIds,
       questionSelectionMode:
-          questionSelectionMode ?? this.questionSelectionMode,
-      durationMinutes: durationMinutes ?? this.durationMinutes,
-      totalMarks: totalMarks ?? this.totalMarks,
-      passPercentage: passPercentage ?? this.passPercentage,
-      questionCount: questionCount ?? this.questionCount,
-      randomizeQuestions: randomizeQuestions ?? this.randomizeQuestions,
-      randomizeOptions: randomizeOptions ?? this.randomizeOptions,
-      isActive: isActive ?? this.isActive,
-      createdBy: createdBy ?? this.createdBy,
-      createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      questions: questions ?? this.questions,
+      questionSelectionMode ??
+          this.questionSelectionMode,
+      automaticQuestionSelection:
+      automaticQuestionSelection ??
+          this.automaticQuestionSelection,
+      durationMinutes:
+      durationMinutes ?? this.durationMinutes,
+      totalMarks:
+      totalMarks ?? this.totalMarks,
+      passPercentage:
+      passPercentage ?? this.passPercentage,
+      questionCount:
+      questionCount ?? this.questionCount,
+      randomizeQuestions:
+      randomizeQuestions ??
+          this.randomizeQuestions,
+      randomizeOptions:
+      randomizeOptions ??
+          this.randomizeOptions,
+      isActive:
+      isActive ?? this.isActive,
+      createdBy:
+      createdBy ?? this.createdBy,
+      createdAt:
+      createdAt ?? this.createdAt,
+      updatedAt:
+      updatedAt ?? this.updatedAt,
+      questions:
+      questions ?? this.questions,
     );
   }
 }
