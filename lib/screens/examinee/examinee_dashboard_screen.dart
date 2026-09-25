@@ -9,9 +9,11 @@ import 'package:questionbank/services/exam_result_service.dart';
 import 'package:questionbank/services/exam_service.dart';
 import 'package:questionbank/services/learning_area_service.dart';
 
-import '../../models/exam_question_result.dart';
 import 'exam_result_screen.dart';
+import 'examinee_add_question_screen.dart';
+import 'examinee_exam_review_screen.dart';
 import 'examinee_learning_area_screen.dart';
+import 'examinee_my_questions_screen.dart';
 
 class ExamineeDashboardScreen extends StatefulWidget {
   const ExamineeDashboardScreen({super.key});
@@ -23,21 +25,23 @@ class ExamineeDashboardScreen extends StatefulWidget {
 
 class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
   final LearningAreaService _learningAreaService = LearningAreaService();
-
   final ExamResultService _resultService = ExamResultService();
-
   final ExamService _examService = ExamService();
-
   final ExamAttemptService _attemptService = ExamAttemptService();
 
   bool _isLoading = true;
   String? _errorMessage;
 
   List<LearningArea> _learningAreas = [];
-  List<ExamResult> _publishedResults = [];
 
-  /// Exam names are loaded only for exams that actually appear
-  /// in the examinee's published results.
+  /// Contains ALL results belonging to the current examinee.
+  ///
+  /// Published and unpublished results are separated only
+  /// when they are displayed.
+  List<ExamResult> _results = [];
+
+  /// Exam names are loaded only for exams that actually
+  /// appear in the examinee's results.
   final Map<String, String> _examNames = {};
 
   @override
@@ -62,15 +66,13 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
       }
 
       /*
-       * IMPORTANT:
+       * The dashboard loads only:
        *
-       * The dashboard no longer loads:
-       *   - all exams
-       *   - all programs
-       *   - all subjects
+       * 1. Learning areas
+       * 2. Results belonging to the current examinee
        *
-       * Those are loaded only when the examinee drills down
-       * into the hierarchy.
+       * Programs, subjects and exams are loaded later
+       * through the drill-down navigation.
        */
       final learningAreas = await _learningAreaService.getAllLearningAreas();
 
@@ -78,32 +80,13 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
 
       if (!mounted) return;
 
-      /*
-       * A result is visible to the examinee only when all
-       * questions have completed assessment.
-       *
-       * This is the current interim publication rule.
-       */
-      final publishedResults = allResults.where((result) {
-        return !result.questionResults.any(
-          (question) =>
-              question.assessmentStatus == QuestionAssessmentStatus.pending,
-        );
-      }).toList();
-
       setState(() {
         _learningAreas = learningAreas;
-        _publishedResults = publishedResults;
+        _results = allResults;
         _isLoading = false;
       });
 
-      /*
-       * Load names only for exams represented in the
-       * published results.
-       *
-       * This avoids loading the entire exams collection.
-       */
-      await _loadExamNames(publishedResults);
+      await _loadExamNames(allResults);
     } catch (e) {
       if (!mounted) return;
 
@@ -111,6 +94,55 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         _isLoading = false;
         _errorMessage = e.toString();
       });
+    }
+  }
+
+  Future<void> _openExamReview(ExamResult result) async {
+    try {
+      final attempt = await _attemptService.getAttemptById(result.attemptId);
+
+      if (!mounted) return;
+
+      if (attempt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('The exam attempt could not be found.'),
+          ),
+        );
+        return;
+      }
+
+      final exam = await _examService.getExamById(result.examId);
+
+      if (!mounted) return;
+
+      if (exam == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('The exam could not be found.'),
+          ),
+        );
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ExamineeExamReviewScreen(
+            exam: exam,
+            attempt: attempt,
+            result: result,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to open exam review: $error'),
+        ),
+      );
     }
   }
 
@@ -132,10 +164,184 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
           });
         }
       } catch (_) {
-        // Do not make the dashboard fail because an old
-        // or unavailable exam document cannot be loaded.
+        /*
+         * An unavailable old exam document should not
+         * make the whole dashboard fail.
+         */
       }
     }
+  }
+
+  Future<void> _openMyQuestions() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ExamineeMyQuestionsScreen(),
+      ),
+    );
+  }
+
+  Widget _buildAddQuestionCard() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const ExamineeAddQuestionScreen(),
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Colors.indigo.withValues(alpha: 0.16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.indigo.withValues(alpha: 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.indigo.shade700,
+                    Colors.indigo.shade500,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Icon(
+                Icons.add_comment_rounded,
+                color: Colors.white,
+                size: 27,
+              ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Contribute a Question',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Submit a question to help improve the question bank.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 17,
+              color: Colors.indigo.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyQuestionsCard() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: _openMyQuestions,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Colors.teal.withValues(alpha: 0.16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.teal.withValues(alpha: 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.teal.shade700,
+                    Colors.teal.shade500,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Icon(
+                Icons.library_books_rounded,
+                color: Colors.white,
+                size: 27,
+              ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'My Questions',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'View your submitted questions and check their status.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 17,
+              color: Colors.teal.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _displayName() {
@@ -194,6 +400,20 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
   }
 
   Future<void> _openResult(ExamResult result) async {
+    /*
+     * Only published results can be opened as a
+     * final result.
+     */
+    if (!result.isPublished) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The final result is not published yet.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     try {
       final results = await Future.wait([
         _examService.getExamById(result.examId),
@@ -212,7 +432,10 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) {
-            return ExamResultScreen(exam: exam, attempt: attempt);
+            return ExamResultScreen(
+              exam: exam,
+              attempt: attempt,
+            );
           },
         ),
       );
@@ -233,10 +456,13 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(26, 25, 26, 25),
+      padding: const EdgeInsets.fromLTRB(26, 25, 18, 25),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.indigo.shade800, Colors.indigo.shade600],
+          colors: [
+            Colors.indigo.shade800,
+            Colors.indigo.shade600,
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -257,7 +483,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(17),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.18),
+              ),
             ),
             child: const Icon(
               Icons.school_rounded,
@@ -292,6 +520,20 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
               ],
             ),
           ),
+          const SizedBox(width: 10),
+          IconButton(
+            tooltip: 'Refresh dashboard',
+            onPressed: _isLoading ? null : _loadData,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.12),
+              foregroundColor: Colors.white,
+              disabledForegroundColor: Colors.white38,
+            ),
+            icon: const Icon(
+              Icons.refresh_rounded,
+              size: 25,
+            ),
+          ),
         ],
       ),
     );
@@ -308,7 +550,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.035),
@@ -326,7 +570,11 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
               color: color.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(icon, color: color, size: 23),
+            child: Icon(
+              icon,
+              color: color,
+              size: 23,
+            ),
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -345,7 +593,10 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
                   label,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
               ],
             ),
@@ -369,16 +620,26 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
             color: Colors.indigo.withValues(alpha: 0.09),
             borderRadius: BorderRadius.circular(11),
           ),
-          child: Icon(icon, color: Colors.indigo, size: 20),
+          child: Icon(
+            icon,
+            color: Colors.indigo,
+            size: 20,
+          ),
         ),
         const SizedBox(width: 11),
         Text(
           title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(width: 9),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 9,
+            vertical: 4,
+          ),
           decoration: BoxDecoration(
             color: Colors.indigo.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(20),
@@ -403,7 +664,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) {
-              return ExamineeLearningAreaScreen(learningArea: area);
+              return ExamineeLearningAreaScreen(
+                learningArea: area,
+              );
             },
           ),
         );
@@ -414,7 +677,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(19),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(
+            color: Colors.grey.shade200,
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
@@ -458,7 +723,10 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
                   const SizedBox(height: 5),
                   Text(
                     'Explore programs and examinations',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -475,15 +743,20 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
   }
 
   Widget _buildLearningAreas() {
-    final activeAreas = _learningAreas.where((area) => area.isActive).toList()
+    final activeAreas = _learningAreas
+        .where((area) => area.isActive)
+        .toList()
       ..sort((a, b) {
-        final sortComparison = a.sortOrder.compareTo(b.sortOrder);
+        final sortComparison =
+        a.sortOrder.compareTo(b.sortOrder);
 
         if (sortComparison != 0) {
           return sortComparison;
         }
 
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        return a.name
+            .toLowerCase()
+            .compareTo(b.name.toLowerCase());
       });
 
     if (activeAreas.isEmpty) {
@@ -491,7 +764,7 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         icon: Icons.auto_stories_outlined,
         title: 'No learning areas available',
         message:
-            'Learning programs will appear here when they become available.',
+        'Learning programs will appear here when they become available.',
       );
     }
 
@@ -501,11 +774,13 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
 
         if (!isWide) {
           return Column(
-            children: activeAreas.map(_buildLearningAreaTile).toList(),
+            children:
+            activeAreas.map(_buildLearningAreaTile).toList(),
           );
         }
 
-        final cardWidth = (constraints.maxWidth - 16) / 2;
+        final cardWidth =
+            (constraints.maxWidth - 16) / 2;
 
         return Wrap(
           spacing: 16,
@@ -521,10 +796,12 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
     );
   }
 
-  Widget _buildResultCard(ExamResult result) {
-    final passedColor = result.passed ? Colors.green : Colors.orange;
+  Widget _buildPublishedResultCard(ExamResult result) {
+    final examName =
+        _examNames[result.examId] ?? 'Exam';
 
-    final examName = _examNames[result.examId] ?? 'Exam Result';
+    final passedColor =
+    result.passed ? Colors.green : Colors.orange;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -532,7 +809,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.025),
@@ -560,7 +839,8 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
           const SizedBox(width: 13),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
                 Text(
                   examName,
@@ -574,16 +854,45 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
                 const SizedBox(height: 5),
                 Text(
                   '${_formatDate(result.completedAt)} • '
-                  '${_formatMarks(result.score)} / '
-                  '${_formatMarks(result.totalMarks)}',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      '${_formatMarks(result.score)} / '
+                      '${_formatMarks(result.totalMarks)}',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          _openExamReview(result),
+                      icon: const Icon(
+                        Icons.visibility_outlined,
+                        size: 17,
+                      ),
+                      label: const Text('View Exam'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          _openResult(result),
+                      icon: const Icon(
+                        Icons.assessment_outlined,
+                        size: 17,
+                      ),
+                      label: const Text('View Result'),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment:
+            CrossAxisAlignment.end,
             children: [
               Text(
                 '${_formatNumber(result.percentage)}%',
@@ -595,13 +904,21 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
               ),
               const SizedBox(height: 3),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: passedColor.withValues(alpha: 0.09),
-                  borderRadius: BorderRadius.circular(15),
+                  color:
+                  passedColor.withValues(alpha: 0.09),
+                  borderRadius:
+                  BorderRadius.circular(15),
                 ),
                 child: Text(
-                  result.passed ? 'Passed' : 'Not Passed',
+                  result.passed
+                      ? 'Passed'
+                      : 'Not Passed',
                   style: TextStyle(
                     color: passedColor,
                     fontSize: 10,
@@ -611,14 +928,92 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: 'View Result',
-            onPressed: () => _openResult(result),
-            icon: const Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 17,
-              color: Colors.indigo,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingResultCard(ExamResult result) {
+    final examName =
+        _examNames[result.examId] ?? 'Exam';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(
+          color: Colors.amber.shade200,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 47,
+            height: 47,
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              Icons.hourglass_top_rounded,
+              color: Colors.amber.shade800,
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: [
+                Text(
+                  examName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Awaiting Examiner\'s Assessment',
+                  style: TextStyle(
+                    color: Colors.amber.shade800,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Your final result will appear here after assessment is completed.',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      _openExamReview(result),
+                  icon: const Icon(
+                    Icons.visibility_outlined,
+                    size: 18,
+                  ),
+                  label: const Text('View Exam'),
+                ),
+              ],
             ),
           ),
         ],
@@ -626,18 +1021,40 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
     );
   }
 
-  Widget _buildResultsSection() {
-    if (_publishedResults.isEmpty) {
+  Widget _buildPublishedResultsSection() {
+    final publishedResults =
+    _results.where((result) => result.isPublished).toList();
+
+    if (publishedResults.isEmpty) {
       return _buildEmptyCard(
-        icon: Icons.bar_chart_rounded,
-        title: 'No published results yet',
+        icon: Icons.emoji_events_outlined,
+        title: 'No final results yet',
         message:
-            'Your completed exam results will appear here after assessment is complete.',
+        'Your completed and assessed exam results will appear here.',
       );
     }
 
     return Column(
-      children: _publishedResults.take(10).map(_buildResultCard).toList(),
+      children: publishedResults
+          .take(10)
+          .map(_buildPublishedResultCard)
+          .toList(),
+    );
+  }
+
+  Widget _buildPendingResultsSection() {
+    final pendingResults =
+    _results.where((result) => !result.isPublished).toList();
+
+    if (pendingResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: pendingResults
+          .take(10)
+          .map(_buildPendingResultCard)
+          .toList(),
     );
   }
 
@@ -648,20 +1065,32 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: 36,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 48, color: Colors.grey.shade400),
+          Icon(
+            icon,
+            size: 48,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 13),
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 7),
           Text(
@@ -694,18 +1123,28 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off_rounded, size: 54, color: Colors.red.shade300),
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 54,
+              color: Colors.red.shade300,
+            ),
             const SizedBox(height: 15),
             const Text(
               'Unable to load your dashboard',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
-              _errorMessage ?? 'An unexpected error occurred.',
+              _errorMessage ??
+                  'An unexpected error occurred.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(
+                color: Colors.grey.shade600,
+              ),
             ),
             const SizedBox(height: 18),
             FilledButton.icon(
@@ -728,17 +1167,59 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
       return _buildErrorState();
     }
 
-    final activeLearningAreaCount = _learningAreas
-        .where((area) => area.isActive)
-        .length;
+    final activeLearningAreaCount =
+        _learningAreas.where((area) => area.isActive).length;
+
+    final publishedResultCount =
+        _results.where((result) => result.isPublished).length;
+
+    final pendingResultCount =
+        _results.where((result) => !result.isPublished).length;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+      CrossAxisAlignment.start,
       children: [
         _buildWelcomeHeader(),
 
         const SizedBox(height: 18),
 
+        /*
+         * QUESTION CONTRIBUTION ACTIONS
+         */
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 800;
+
+            if (isWide) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: _buildAddQuestionCard(),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: _buildMyQuestionsCard(),
+                  ),
+                ],
+              );
+            }
+
+            return Column(
+              children: [
+                _buildAddQuestionCard(),
+                const SizedBox(height: 12),
+                _buildMyQuestionsCard(),
+              ],
+            );
+          },
+        ),
+
+        const SizedBox(height: 18),
+
+        /*
+         * DASHBOARD SUMMARY
+         */
         LayoutBuilder(
           builder: (context, constraints) {
             final isWide = constraints.maxWidth >= 800;
@@ -749,7 +1230,8 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
                   Expanded(
                     child: _buildSummaryCard(
                       icon: Icons.auto_stories_rounded,
-                      value: '$activeLearningAreaCount',
+                      value:
+                      '$activeLearningAreaCount',
                       label: 'Learning Areas',
                       color: Colors.indigo,
                     ),
@@ -758,7 +1240,8 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
                   Expanded(
                     child: _buildSummaryCard(
                       icon: Icons.emoji_events_outlined,
-                      value: '${_publishedResults.length}',
+                      value:
+                      '$publishedResultCount',
                       label: 'Published Results',
                       color: Colors.green,
                     ),
@@ -771,14 +1254,16 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
               children: [
                 _buildSummaryCard(
                   icon: Icons.auto_stories_rounded,
-                  value: '$activeLearningAreaCount',
+                  value:
+                  '$activeLearningAreaCount',
                   label: 'Learning Areas',
                   color: Colors.indigo,
                 ),
                 const SizedBox(height: 10),
                 _buildSummaryCard(
                   icon: Icons.emoji_events_outlined,
-                  value: '${_publishedResults.length}',
+                  value:
+                  '$publishedResultCount',
                   label: 'Published Results',
                   color: Colors.green,
                 ),
@@ -789,6 +1274,9 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
 
         const SizedBox(height: 30),
 
+        /*
+         * LEARNING AREAS
+         */
         _buildSectionTitle(
           icon: Icons.account_tree_rounded,
           title: 'Learning Areas',
@@ -801,15 +1289,35 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
 
         const SizedBox(height: 30),
 
+        /*
+         * FINAL / APPROVED RESULTS
+         */
         _buildSectionTitle(
-          icon: Icons.bar_chart_rounded,
-          title: 'My Results',
-          count: '${_publishedResults.length}',
+          icon: Icons.emoji_events_rounded,
+          title: 'Final Results',
+          count: '$publishedResultCount',
         ),
 
         const SizedBox(height: 14),
 
-        _buildResultsSection(),
+        _buildPublishedResultsSection(),
+
+        /*
+         * PENDING ASSESSMENT RESULTS
+         */
+        if (pendingResultCount > 0) ...[
+          const SizedBox(height: 30),
+
+          _buildSectionTitle(
+            icon: Icons.hourglass_top_rounded,
+            title: 'Awaiting Assessment',
+            count: '$pendingResultCount',
+          ),
+
+          const SizedBox(height: 14),
+
+          _buildPendingResultsSection(),
+        ],
       ],
     );
   }
@@ -822,11 +1330,13 @@ class _ExamineeDashboardScreenState extends State<ExamineeDashboardScreen> {
         child: RefreshIndicator(
           onRefresh: _loadData,
           child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
+            physics:
+            const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1400),
+                constraints:
+                const BoxConstraints(maxWidth: 1400),
                 child: _buildContent(),
               ),
             ),

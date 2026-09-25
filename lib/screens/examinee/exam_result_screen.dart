@@ -5,6 +5,7 @@ import 'package:questionbank/models/exam_result.dart';
 import 'package:questionbank/services/exam_result_service.dart';
 
 import '../../models/exam_question_result.dart';
+import 'examinee_detailed_result_screen.dart';
 
 class ExamResultScreen extends StatefulWidget {
   final Exam exam;
@@ -78,8 +79,8 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     return result.questionResults
         .where(
           (question) =>
-              question.assessmentStatus == QuestionAssessmentStatus.pending,
-        )
+      question.assessmentStatus == QuestionAssessmentStatus.pending,
+    )
         .length;
   }
 
@@ -105,31 +106,63 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     }
   }
 
+  void _openDetailedResult(ExamResult result) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExamineeDetailedResultScreen(
+          exam: widget.exam,
+          attempt: widget.attempt,
+          result: result,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Exam Result')),
+      backgroundColor: theme.colorScheme.surfaceContainerLowest,
+      appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 2,
+        title: const Text(
+          'Exam Result',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: false,
+      ),
       body: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
 
-          final horizontalPadding = width >= 1000
-              ? 28.0
-              : width >= 600
+          final horizontalPadding = width >= 1100
+              ? 30.0
+              : width >= 700
               ? 22.0
               : 14.0;
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              20,
-              horizontalPadding,
-              30,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1000),
-                child: _buildBody(context),
+          return RefreshIndicator(
+            onRefresh: _loadResult,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                20,
+                horizontalPadding,
+                32,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 1050,
+                  ),
+                  child: _buildBody(context),
+                ),
               ),
             ),
           );
@@ -141,8 +174,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   Widget _buildBody(BuildContext context) {
     if (_isLoading) {
       return const Padding(
-        padding: EdgeInsets.all(60),
-        child: Center(child: CircularProgressIndicator()),
+        padding: EdgeInsets.all(70),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
       );
     }
 
@@ -157,20 +192,23 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     return _buildResult(context, _result!);
   }
 
-  Widget _buildResult(BuildContext context, ExamResult result) {
+  Widget _buildResult(
+      BuildContext context,
+      ExamResult result,
+      ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildExamHeader(context, result),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _buildResultHero(context, result),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _buildStatistics(context, result),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _buildSubmissionInformation(context, result),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _buildAssessmentInformation(context, result),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         _buildActionButtons(context, result),
       ],
     );
@@ -180,31 +218,46 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // EXAM HEADER
   // ============================================================
 
-  Widget _buildExamHeader(BuildContext context, ExamResult result) {
+  Widget _buildExamHeader(
+      BuildContext context,
+      ExamResult result,
+      ) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final pending = _pendingAssessmentCount;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primaryContainer,
+            colorScheme.secondaryContainer,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: colorScheme.primary.withValues(alpha: 0.12),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
+              color: colorScheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(15),
             ),
             child: Icon(
               Icons.assignment_turned_in_rounded,
-              color: theme.colorScheme.primary,
-              size: 25,
+              color: colorScheme.primary,
+              size: 27,
             ),
           ),
           const SizedBox(width: 14),
@@ -216,15 +269,19 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   widget.exam.examName,
                   softWrap: true,
                   style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
+                    color: colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  'Your examination has been submitted.',
+                  pending == 0
+                      ? 'Your examination has been completed and assessed.'
+                      : 'Your examination has been submitted and is awaiting assessment.',
                   softWrap: true,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.4,
                   ),
                 ),
               ],
@@ -239,32 +296,60 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // RESULT HERO
   // ============================================================
 
-  Widget _buildResultHero(BuildContext context, ExamResult result) {
+  Widget _buildResultHero(
+      BuildContext context,
+      ExamResult result,
+      ) {
     final theme = Theme.of(context);
 
-    final statusColor = result.passed ? Colors.green : Colors.red;
+    final isPublished = result.isPublished;
 
-    final statusIcon = result.passed
+    final statusColor = !isPublished
+        ? Colors.orange
+        : result.passed
+        ? Colors.green
+        : Colors.red;
+
+    final statusIcon = !isPublished
+        ? Icons.pending_actions_rounded
+        : result.passed
         ? Icons.check_circle_rounded
         : Icons.cancel_rounded;
 
-    final statusText = result.passed ? 'PASSED' : 'NOT PASSED';
+    final statusText = !isPublished
+        ? 'AWAITING ASSESSMENT'
+        : result.passed
+        ? 'PASSED'
+        : 'NOT PASSED';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(26),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: statusColor.withValues(alpha: 0.20)),
+        gradient: LinearGradient(
+          colors: [
+            statusColor.withValues(alpha: 0.10),
+            statusColor.withValues(alpha: 0.035),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: statusColor.withValues(alpha: 0.22),
+          width: 1.2,
+        ),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth < 520) {
+          if (constraints.maxWidth < 560) {
             return Column(
               children: [
-                _buildScoreDisplay(context, result),
-                const SizedBox(height: 22),
+                _buildScoreDisplay(
+                  context,
+                  result,
+                ),
+                const SizedBox(height: 20),
                 _buildPassStatus(
                   context,
                   result,
@@ -277,8 +362,14 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
           }
 
           return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(child: _buildScoreDisplay(context, result)),
+              Expanded(
+                child: _buildScoreDisplay(
+                  context,
+                  result,
+                ),
+              ),
               const SizedBox(width: 20),
               _buildPassStatus(
                 context,
@@ -294,8 +385,43 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     );
   }
 
-  Widget _buildScoreDisplay(BuildContext context, ExamResult result) {
+  Widget _buildScoreDisplay(
+      BuildContext context,
+      ExamResult result,
+      ) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    if (!result.isPublished) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Result Status',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            'Assessment in progress',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: Colors.orange.shade800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Your final score will be available after all written answers are assessed.',
+            softWrap: true,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              height: 1.4,
+            ),
+          ),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,20 +432,31 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 7),
+        const SizedBox(height: 6),
         Text(
           '${_formatMarks(result.score)} / '
-          '${_formatMarks(result.totalMarks)}',
+              '${_formatMarks(result.totalMarks)}',
           style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.8,
           ),
         ),
-        const SizedBox(height: 5),
-        Text(
-          _formatPercentage(result.percentage),
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w700,
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 11,
+            vertical: 5,
+          ),
+          decoration: BoxDecoration(
+            color: colorScheme.primary.withValues(alpha: 0.09),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            _formatPercentage(result.percentage),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ],
@@ -327,43 +464,77 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   }
 
   Widget _buildPassStatus(
-    BuildContext context,
-    ExamResult result,
-    Color color,
-    IconData icon,
-    String text,
-  ) {
+      BuildContext context,
+      ExamResult result,
+      Color color,
+      IconData icon,
+      String text,
+      ) {
     final theme = Theme.of(context);
 
     return Container(
-      constraints: const BoxConstraints(minWidth: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+      constraints: const BoxConstraints(
+        minWidth: 175,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 17,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(
+          color: color.withValues(alpha: 0.20),
+        ),
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 30),
-          const SizedBox(height: 7),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 29,
+            ),
+          ),
+          const SizedBox(height: 9),
           Text(
             text,
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: color,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.6,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.5,
+              fontSize: 13,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Pass mark: '
-            '${_formatPercentage(result.passPercentage)}',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: color.withValues(alpha: 0.85),
+          if (result.isPublished) ...[
+            const SizedBox(height: 5),
+            Text(
+              'Pass mark: '
+                  '${_formatPercentage(result.passPercentage)}',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
+          ] else ...[
+            const SizedBox(height: 5),
+            Text(
+              'Final result pending',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -373,7 +544,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // STATISTICS
   // ============================================================
 
-  Widget _buildStatistics(BuildContext context, ExamResult result) {
+  Widget _buildStatistics(
+      BuildContext context,
+      ExamResult result,
+      ) {
     final theme = Theme.of(context);
 
     final cards = [
@@ -412,21 +586,31 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: theme.dividerColor.withValues(alpha: 0.35),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth < 500) {
             return Column(
-              children: cards
-                  .map(
-                    (card) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: card,
+              children: [
+                for (int i = 0; i < cards.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      bottom: i == cards.length - 1 ? 0 : 10,
                     ),
-                  )
-                  .toList(),
+                    child: cards[i],
+                  ),
+              ],
             );
           }
 
@@ -436,10 +620,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             children: cards
                 .map(
                   (card) => SizedBox(
-                    width: (constraints.maxWidth - 10) / 2,
-                    child: card,
-                  ),
-                )
+                width: (constraints.maxWidth - 10) / 2,
+                child: card,
+              ),
+            )
                 .toList(),
           );
         },
@@ -448,33 +632,39 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   }
 
   Widget _buildStatisticCard(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required String value,
+        required Color color,
+      }) {
     final theme = Theme.of(context);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.045),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.12)),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: color.withValues(alpha: 0.13),
+        ),
       ),
       child: Row(
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.09),
-              borderRadius: BorderRadius.circular(10),
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(
+              icon,
+              color: color,
+              size: 21,
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,13 +675,14 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
                   style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -506,28 +697,37 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // SUBMISSION INFORMATION
   // ============================================================
 
-  Widget _buildSubmissionInformation(BuildContext context, ExamResult result) {
-    final theme = Theme.of(context);
-
+  Widget _buildSubmissionInformation(
+      BuildContext context,
+      ExamResult result,
+      ) {
     return _buildInformationCard(
       context,
       title: 'Submission Information',
       icon: Icons.info_outline_rounded,
+      iconColor: Colors.indigo,
       children: [
         _buildInformationRow(
           context,
+          icon: Icons.send_outlined,
           label: 'Submission Type',
-          value: _formatSubmissionType(result.submissionType),
+          value: _formatSubmissionType(
+            result.submissionType,
+          ),
         ),
         _buildInformationRow(
           context,
+          icon: Icons.tag_outlined,
           label: 'Attempt ID',
           value: result.attemptId,
         ),
         _buildInformationRow(
           context,
+          icon: Icons.schedule_outlined,
           label: 'Completed',
-          value: _formatDateTime(result.completedAt),
+          value: _formatDateTime(
+            result.completedAt,
+          ),
         ),
       ],
     );
@@ -537,7 +737,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // ASSESSMENT INFORMATION
   // ============================================================
 
-  Widget _buildAssessmentInformation(BuildContext context, ExamResult result) {
+  Widget _buildAssessmentInformation(
+      BuildContext context,
+      ExamResult result,
+      ) {
     final pending = _pendingAssessmentCount;
     final theme = Theme.of(context);
 
@@ -545,6 +748,9 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       context,
       title: 'Assessment Status',
       icon: Icons.rate_review_outlined,
+      iconColor: pending == 0
+          ? Colors.green
+          : Colors.orange,
       children: [
         if (pending == 0)
           _buildAssessmentMessage(
@@ -559,18 +765,18 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             icon: Icons.pending_actions_rounded,
             color: Colors.orange,
             message:
-                '$pending written question'
+            '$pending written question'
                 '${pending == 1 ? '' : 's'} '
                 'still require manual assessment.',
           ),
         if (pending > 0) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           Text(
-            'The displayed score may change after '
-            'written answers are assessed.',
+            'The final score, percentage and pass/fail status '
+                'will be available after assessment is complete.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
-              height: 1.4,
+              height: 1.45,
             ),
           ),
         ],
@@ -579,31 +785,45 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   }
 
   Widget _buildAssessmentMessage(
-    BuildContext context, {
-    required IconData icon,
-    required Color color,
-    required String message,
-  }) {
+      BuildContext context, {
+        required IconData icon,
+        required Color color,
+        required String message,
+      }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(13),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
+        color: color.withValues(alpha: 0.065),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: color.withValues(alpha: 0.16),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 9),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 19,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
               softWrap: true,
               style: TextStyle(
                 color: color,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 height: 1.4,
               ),
             ),
@@ -618,11 +838,12 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   // ============================================================
 
   Widget _buildInformationCard(
-    BuildContext context, {
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
+      BuildContext context, {
+        required String title,
+        required IconData icon,
+        required Color iconColor,
+        required List<Widget> children,
+      }) {
     final theme = Theme.of(context);
 
     return Container(
@@ -630,25 +851,48 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: theme.dividerColor.withValues(alpha: 0.35),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 21, color: theme.colorScheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: iconColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 16),
           ...children,
         ],
       ),
@@ -656,36 +900,44 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   }
 
   Widget _buildInformationRow(
-    BuildContext context, {
-    required String label,
-    required String value,
-  }) {
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required String value,
+      }) {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 11),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(
+            icon,
+            size: 18,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 9),
           SizedBox(
-            width: 135,
+            width: 125,
             child: Text(
               label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               value,
               softWrap: true,
               style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
               ),
             ),
           ),
@@ -701,15 +953,17 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
 
-    return '$day/$month/${date.year} '
-        '$hour:$minute';
+    return '$day/$month/${date.year} $hour:$minute';
   }
 
   // ============================================================
   // ACTIONS
   // ============================================================
 
-  Widget _buildActionButtons(BuildContext context, ExamResult result) {
+  Widget _buildActionButtons(
+      BuildContext context,
+      ExamResult result,
+      ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 520) {
@@ -717,24 +971,31 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               FilledButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Detailed result view '
-                        'will be added in the next step.',
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('View Detailed Result'),
+                onPressed: () => _openDetailedResult(result),
+                icon: const Icon(
+                  Icons.fact_check_outlined,
+                ),
+                label: const Text(
+                  'View Detailed Result',
+                ),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                  ),
+                ),
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                ),
                 label: const Text('Back'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                  ),
+                ),
               ),
             ],
           );
@@ -744,26 +1005,33 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Detailed result view '
-                        'will be added in the next step.',
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('View Detailed Result'),
+                onPressed: () => _openDetailedResult(result),
+                icon: const Icon(
+                  Icons.fact_check_outlined,
+                ),
+                label: const Text(
+                  'View Detailed Result',
+                ),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                ),
                 label: const Text('Back'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                  ),
+                ),
               ),
             ),
           ],
@@ -778,34 +1046,49 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
 
   Widget _buildErrorState(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(36),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.18)),
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.red.withValues(alpha: 0.18),
+        ),
       ),
       child: Column(
         children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            size: 52,
-            color: Colors.redAccent,
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.error_outline_rounded,
+              size: 38,
+              color: Colors.redAccent,
+            ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           Text(
             _errorMessage ??
-                'Something went wrong while '
-                    'loading the result.',
+                'Something went wrong while loading the result.',
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodyLarge,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              height: 1.45,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           FilledButton.icon(
             onPressed: _loadResult,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(
+              Icons.refresh_rounded,
+            ),
             label: const Text('Retry'),
           ),
         ],

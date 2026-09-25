@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:questionbank/models/exam.dart';
 import 'package:questionbank/models/exam_attempt.dart';
@@ -28,6 +29,8 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   final QuestionService _questionService = QuestionService();
   final ExamAttemptService _attemptService = ExamAttemptService();
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isAutoSubmitting = false;
@@ -48,6 +51,12 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
   /// Controllers for written-answer questions.
   final Map<String, TextEditingController> _writtenControllers = {};
+
+  /// Cached question-author information.
+  ///
+  /// Key = Firebase user UID
+  /// Value = author display information.
+  final Map<String, _QuestionAuthor> _authorCache = {};
 
   @override
   void initState() {
@@ -106,9 +115,12 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
     updateRemainingTime();
 
-    _examTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      updateRemainingTime();
-    });
+    _examTimer = Timer.periodic(
+      const Duration(seconds: 1),
+          (_) {
+        updateRemainingTime();
+      },
+    );
   }
 
   String _formatRemainingTime() {
@@ -146,24 +158,35 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
     final timerColor = _getTimerColor();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 7,
+      ),
       decoration: BoxDecoration(
         color: timerColor.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: timerColor.withValues(alpha: 0.25)),
+        border: Border.all(
+          color: timerColor.withValues(alpha: 0.25),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timer_outlined, size: 17, color: timerColor),
+          Icon(
+            Icons.timer_outlined,
+            size: 17,
+            color: timerColor,
+          ),
           const SizedBox(width: 6),
           Text(
             _formatRemainingTime(),
             style: TextStyle(
               color: timerColor,
               fontSize: 13,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [
+                FontFeature.tabularFigures(),
+              ],
             ),
           ),
         ],
@@ -214,14 +237,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           return AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.timer_off_rounded, color: Colors.red),
+                Icon(
+                  Icons.timer_off_rounded,
+                  color: Colors.red,
+                ),
                 SizedBox(width: 10),
-                Expanded(child: Text('Time Is Up')),
+                Expanded(
+                  child: Text('Time Is Up'),
+                ),
               ],
             ),
             content: const Text(
               'Your exam has been submitted automatically '
-              'because the allotted time has ended.',
+                  'because the allotted time has ended.',
             ),
             actions: [
               FilledButton(
@@ -251,7 +279,7 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
       _showMessage(
         'Time expired, but the exam could not be submitted. '
-        'Please try again.',
+            'Please try again.',
       );
     }
   }
@@ -276,7 +304,8 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       final allQuestions = await _questionService.getAllQuestions();
 
       final questionsById = <String, Question>{
-        for (final question in allQuestions) question.questionId: question,
+        for (final question in allQuestions)
+          question.questionId: question,
       };
 
       final orderedQuestions = <Question>[];
@@ -290,7 +319,9 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       }
 
       if (orderedQuestions.isEmpty) {
-        throw Exception('No questions could be loaded for this exam attempt.');
+        throw Exception(
+          'No questions could be loaded for this exam attempt.',
+        );
       }
 
       if (_currentQuestionIndex < 0 ||
@@ -309,15 +340,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
         final existingAnswer = _answers[question.questionId];
 
-        _writtenControllers[question.questionId] = TextEditingController(
-          text: existingAnswer?.writtenAnswer ?? '',
-        );
+        _writtenControllers[question.questionId] =
+            TextEditingController(
+              text: existingAnswer?.writtenAnswer ?? '',
+            );
       }
 
       setState(() {
         _questions = orderedQuestions;
         _isLoading = false;
       });
+
+      // Load author information after the questions themselves are ready.
+      await _loadQuestionAuthors(orderedQuestions);
     } catch (e) {
       if (!mounted) {
         return;
@@ -325,9 +360,198 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _errorMessage =
+            e.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // QUESTION AUTHOR
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadQuestionAuthors(
+      List<Question> questions,
+      ) async {
+    final authorIds = questions
+        .map((question) => question.createdBy.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    if (authorIds.isEmpty) {
+      return;
+    }
+
+    for (final userId in authorIds) {
+      if (_authorCache.containsKey(userId)) {
+        continue;
+      }
+
+      try {
+        final document = await _firestore
+            .collection('users')
+            .doc(userId)
+            .get();
+
+        if (!document.exists || document.data() == null) {
+          _authorCache[userId] = const _QuestionAuthor(
+            displayName: 'Question Contributor',
+            mobileNumber: null,
+          );
+          continue;
+        }
+
+        final data = document.data()!;
+
+        final displayName =
+            (data['displayName'] as String?)?.trim() ?? '';
+
+        final username =
+            (data['username'] as String?)?.trim() ?? '';
+
+        final mobileNumber =
+        (data['mobileNumber'] as String?)?.trim();
+
+        _authorCache[userId] = _QuestionAuthor(
+          displayName: displayName.isNotEmpty
+              ? displayName
+              : username.isNotEmpty
+              ? username
+              : 'Question Contributor',
+          mobileNumber: mobileNumber?.isNotEmpty == true
+              ? mobileNumber
+              : null,
+        );
+      } catch (_) {
+        // Author information must never prevent an examinee
+        // from attending the exam.
+        _authorCache[userId] = const _QuestionAuthor(
+          displayName: 'Question Contributor',
+          mobileNumber: null,
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  String _maskPhoneNumber(String? phoneNumber) {
+    if (phoneNumber == null || phoneNumber.trim().isEmpty) {
+      return 'Contact unavailable';
+    }
+
+    final phone = phoneNumber.trim();
+
+    if (phone.length <= 5) {
+      return '••••••';
+    }
+
+    if (phone.length <= 8) {
+      return '${phone.substring(0, 3)}••••';
+    }
+
+    final visibleStart = phone.substring(0, 5);
+    final visibleEnd = phone.substring(phone.length - 2);
+
+    return '$visibleStart••••$visibleEnd';
+  }
+
+  Widget _buildQuestionAuthor(Question question) {
+    final authorId = question.createdBy.trim();
+
+    if (authorId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final author = _authorCache[authorId];
+
+    if (author == null) {
+      return _buildAuthorFooter(
+        displayName: 'Loading author information...',
+        mobileNumber: null,
+        isLoading: true,
+      );
+    }
+
+    return _buildAuthorFooter(
+      displayName: author.displayName,
+      mobileNumber: author.mobileNumber,
+    );
+  }
+
+  Widget _buildAuthorFooter({
+    required String displayName,
+    required String? mobileNumber,
+    bool isLoading = false,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 22),
+      padding: const EdgeInsets.only(top: 15),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 15,
+                color: Colors.grey.shade600,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'Question by ',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              Text(
+                displayName,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (mobileNumber != null || isLoading)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.phone_outlined,
+                  size: 14,
+                  color: Colors.grey.shade600,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  isLoading
+                      ? 'Loading...'
+                      : _maskPhoneNumber(mobileNumber),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 
   Question? get _currentQuestion {
@@ -347,15 +571,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // OPTIONS
   // ---------------------------------------------------------------------------
 
-  List<QuestionOption> _getOrderedOptions(Question question) {
-    final savedOrder = widget.attempt.optionOrder[question.questionId];
+  List<QuestionOption> _getOrderedOptions(
+      Question question,
+      ) {
+    final savedOrder =
+    widget.attempt.optionOrder[question.questionId];
 
     if (savedOrder == null || savedOrder.isEmpty) {
       return question.options;
     }
 
     final optionsById = <String, QuestionOption>{
-      for (final option in question.options) option.optionId: option,
+      for (final option in question.options)
+        option.optionId: option,
     };
 
     final orderedOptions = <QuestionOption>[];
@@ -368,9 +596,10 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       }
     }
 
-    // Add any options not present in the saved order.
     for (final option in question.options) {
-      if (!orderedOptions.any((item) => item.optionId == option.optionId)) {
+      if (!orderedOptions.any(
+            (item) => item.optionId == option.optionId,
+      )) {
         orderedOptions.add(option);
       }
     }
@@ -388,13 +617,18 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
   String _getOptionLabel(int index) {
     if (index >= 0 && index < 26) {
-      return String.fromCharCode('A'.codeUnitAt(0) + index);
+      return String.fromCharCode(
+        'A'.codeUnitAt(0) + index,
+      );
     }
 
     return '${index + 1}';
   }
 
-  bool _isOptionSelected(String questionId, String optionId) {
+  bool _isOptionSelected(
+      String questionId,
+      String optionId,
+      ) {
     final answer = _answers[questionId];
 
     if (answer == null) {
@@ -452,7 +686,9 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
         _isSaving = false;
       });
 
-      _showMessage('Could not save your progress. Please try again.');
+      _showMessage(
+        'Could not save your progress. Please try again.',
+      );
     }
   }
 
@@ -481,8 +717,10 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
     final updatedAnswer = ExamAttemptAnswer(
       questionId: question.questionId,
       selectedOptionIds: currentSelection,
-      writtenAnswer: existingAnswer?.writtenAnswer ?? '',
-      markedForReview: existingAnswer?.markedForReview ?? false,
+      writtenAnswer:
+      existingAnswer?.writtenAnswer ?? '',
+      markedForReview:
+      existingAnswer?.markedForReview ?? false,
     );
 
     setState(() {
@@ -495,23 +733,28 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   Future<void> _saveCurrentWrittenAnswer() async {
     final question = _currentQuestion;
 
-    if (question == null || question.questionType != QuestionType.written) {
+    if (question == null ||
+        question.questionType != QuestionType.written) {
       return;
     }
 
-    final controller = _writtenControllers[question.questionId];
+    final controller =
+    _writtenControllers[question.questionId];
 
     if (controller == null) {
       return;
     }
 
-    final existingAnswer = _answers[question.questionId];
+    final existingAnswer =
+    _answers[question.questionId];
 
     _answers[question.questionId] = ExamAttemptAnswer(
       questionId: question.questionId,
-      selectedOptionIds: existingAnswer?.selectedOptionIds ?? const [],
+      selectedOptionIds:
+      existingAnswer?.selectedOptionIds ?? const [],
       writtenAnswer: controller.text,
-      markedForReview: existingAnswer?.markedForReview ?? false,
+      markedForReview:
+      existingAnswer?.markedForReview ?? false,
     );
   }
 
@@ -526,23 +769,31 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       return false;
     }
 
-    return _answers[question.questionId]?.markedForReview ?? false;
+    return _answers[question.questionId]
+        ?.markedForReview ??
+        false;
   }
 
   Future<void> _toggleMarkForReview() async {
     final question = _currentQuestion;
 
-    if (question == null || _isSaving || _isAutoSubmitting) {
+    if (question == null ||
+        _isSaving ||
+        _isAutoSubmitting) {
       return;
     }
 
-    final existingAnswer = _answers[question.questionId];
+    final existingAnswer =
+    _answers[question.questionId];
 
     final updatedAnswer = ExamAttemptAnswer(
       questionId: question.questionId,
-      selectedOptionIds: existingAnswer?.selectedOptionIds ?? const [],
-      writtenAnswer: existingAnswer?.writtenAnswer ?? '',
-      markedForReview: !(existingAnswer?.markedForReview ?? false),
+      selectedOptionIds:
+      existingAnswer?.selectedOptionIds ?? const [],
+      writtenAnswer:
+      existingAnswer?.writtenAnswer ?? '',
+      markedForReview:
+      !(existingAnswer?.markedForReview ?? false),
     );
 
     setState(() {
@@ -594,7 +845,9 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   }
 
   Future<void> _goToPreviousQuestion() async {
-    if (_currentQuestionIndex <= 0 || _isSaving || _isAutoSubmitting) {
+    if (_currentQuestionIndex <= 0 ||
+        _isSaving ||
+        _isAutoSubmitting) {
       return;
     }
 
@@ -612,7 +865,8 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   }
 
   Future<void> _goToNextQuestion() async {
-    if (_currentQuestionIndex >= _questions.length - 1 ||
+    if (_currentQuestionIndex >=
+        _questions.length - 1 ||
         _isSaving ||
         _isAutoSubmitting) {
       return;
@@ -648,7 +902,8 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
     final totalQuestions = _questions.length;
     final answeredQuestions = _getAnsweredCount();
-    final unansweredQuestions = totalQuestions - answeredQuestions;
+    final unansweredQuestions =
+        totalQuestions - answeredQuestions;
 
     final markedForReviewQuestions = _answers.values
         .where((answer) => answer.markedForReview)
@@ -661,16 +916,24 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
         return AlertDialog(
           title: const Row(
             children: [
-              Icon(Icons.assignment_turned_in_rounded, color: Colors.indigo),
+              Icon(
+                Icons.assignment_turned_in_rounded,
+                color: Colors.indigo,
+              ),
               SizedBox(width: 10),
-              Expanded(child: Text('Submit Exam?')),
+              Expanded(
+                child: Text('Submit Exam?'),
+              ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
-              const Text('Please review your exam summary before submitting.'),
+              const Text(
+                'Please review your exam summary before submitting.',
+              ),
               const SizedBox(height: 20),
               _buildSubmissionSummaryRow(
                 icon: Icons.quiz_outlined,
@@ -679,19 +942,22 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
               ),
               const SizedBox(height: 10),
               _buildSubmissionSummaryRow(
-                icon: Icons.check_circle_outline_rounded,
+                icon:
+                Icons.check_circle_outline_rounded,
                 label: 'Answered',
                 value: '$answeredQuestions',
               ),
               const SizedBox(height: 10),
               _buildSubmissionSummaryRow(
-                icon: Icons.radio_button_unchecked_rounded,
+                icon:
+                Icons.radio_button_unchecked_rounded,
                 label: 'Unanswered',
                 value: '$unansweredQuestions',
               ),
               const SizedBox(height: 10),
               _buildSubmissionSummaryRow(
-                icon: Icons.bookmark_outline_rounded,
+                icon:
+                Icons.bookmark_outline_rounded,
                 label: 'Marked for Review',
                 value: '$markedForReviewQuestions',
               ),
@@ -701,14 +967,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
+                    color:
+                    Colors.orange.withValues(alpha: 0.08),
+                    borderRadius:
+                    BorderRadius.circular(10),
                     border: Border.all(
-                      color: Colors.orange.withValues(alpha: 0.25),
+                      color: Colors.orange.withValues(
+                        alpha: 0.25,
+                      ),
                     ),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                    CrossAxisAlignment.start,
                     children: [
                       Icon(
                         Icons.warning_amber_rounded,
@@ -718,12 +989,14 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'You still have $unansweredQuestions '
-                          'unanswered question'
-                          '${unansweredQuestions == 1 ? '' : 's'}. '
-                          'Are you sure you want to submit?',
+                          'You still have '
+                              '$unansweredQuestions '
+                              'unanswered question'
+                              '${unansweredQuestions == 1 ? '' : 's'}. '
+                              'Are you sure you want to submit?',
                           style: TextStyle(
-                            color: Colors.orange.shade900,
+                            color:
+                            Colors.orange.shade900,
                             fontSize: 13,
                             height: 1.4,
                           ),
@@ -766,14 +1039,16 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       final finalAttempt = widget.attempt.copyWith(
         answers: _getAnswersForSaving(),
         answeredCount: _getAnsweredCount(),
-        currentQuestionIndex: _currentQuestionIndex,
+        currentQuestionIndex:
+        _currentQuestionIndex,
       );
 
       await _attemptService.updateProgress(
         attemptId: widget.attempt.attemptId,
         answers: _getAnswersForSaving(),
         answeredCount: _getAnsweredCount(),
-        currentQuestionIndex: _currentQuestionIndex,
+        currentQuestionIndex:
+        _currentQuestionIndex,
       );
 
       await _attemptService.completeAttempt(
@@ -796,12 +1071,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           return AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.green),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.green,
+                ),
                 SizedBox(width: 10),
-                Expanded(child: Text('Exam Submitted')),
+                Expanded(
+                  child: Text('Exam Submitted'),
+                ),
               ],
             ),
-            content: const Text('Your exam has been submitted successfully.'),
+            content: const Text(
+              'Your exam has been submitted successfully.',
+            ),
             actions: [
               FilledButton(
                 onPressed: () {
@@ -839,7 +1121,7 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
       _showMessage(
         'The exam could not be submitted. '
-        'Please try again.',
+            'Please try again.',
       );
     }
   }
@@ -851,12 +1133,24 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   }) {
     return Row(
       children: [
-        Icon(icon, size: 19, color: Colors.indigo.shade700),
+        Icon(
+          icon,
+          size: 19,
+          color: Colors.indigo.shade700,
+        ),
         const SizedBox(width: 10),
-        Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 14),
+          ),
+        ),
         Text(
           value,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -879,14 +1173,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
         return AlertDialog(
           title: const Row(
             children: [
-              Icon(Icons.exit_to_app_rounded, color: Colors.orange),
+              Icon(
+                Icons.exit_to_app_rounded,
+                color: Colors.orange,
+              ),
               SizedBox(width: 10),
-              Expanded(child: Text('Quit Exam?')),
+              Expanded(
+                child: Text('Quit Exam?'),
+              ),
             ],
           ),
           content: const Text(
             'Your current progress has been saved. '
-            'You can return to this attempt later.',
+                'You can return to this attempt later.',
           ),
           actions: [
             TextButton(
@@ -899,7 +1198,9 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
               onPressed: () {
                 Navigator.of(dialogContext).pop(true);
               },
-              icon: const Icon(Icons.exit_to_app_rounded),
+              icon: const Icon(
+                Icons.exit_to_app_rounded,
+              ),
               label: const Text('Quit'),
             ),
           ],
@@ -922,7 +1223,10 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -931,7 +1235,9 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // ---------------------------------------------------------------------------
 
   Widget _buildLoadingState() {
-    return const Center(child: CircularProgressIndicator());
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
   }
 
   Widget _buildErrorState() {
@@ -939,16 +1245,21 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 500),
+          constraints: const BoxConstraints(
+            maxWidth: 500,
+          ),
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(
+                color: Colors.red.shade100,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
+                  color:
+                  Colors.black.withValues(alpha: 0.04),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
@@ -965,20 +1276,29 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
                 const SizedBox(height: 14),
                 const Text(
                   'Unable to Load Questions',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   _errorMessage ??
-                      'Something went wrong while loading the questions.',
-                  style: TextStyle(color: Colors.grey.shade700, height: 1.4),
+                      'Something went wrong while '
+                          'loading the questions.',
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    height: 1.4,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _loadQuestions,
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                  ),
                   label: const Text('Retry'),
                 ),
               ],
@@ -993,8 +1313,12 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // QUESTION HEADER
   // ---------------------------------------------------------------------------
 
-  Widget _buildQuestionHeader(Question question) {
-    final questionNumber = _currentQuestionIndex + 1;
+  Widget _buildQuestionHeader(
+      Question question,
+      ) {
+    final questionNumber =
+        _currentQuestionIndex + 1;
+
     final totalQuestions = _questions.length;
 
     final progress = totalQuestions == 0
@@ -1005,25 +1329,47 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade700,
+        gradient: LinearGradient(
+          colors: [
+            Colors.indigo.shade700,
+            Colors.deepPurple.shade600,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withValues(alpha: 0.16),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white.withValues(
+                    alpha: 0.14,
+                  ),
+                  borderRadius:
+                  BorderRadius.circular(20),
                 ),
                 child: Text(
-                  'Question $questionNumber of $totalQuestions',
+                  'Question $questionNumber '
+                      'of $totalQuestions',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -1031,15 +1377,18 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
                   ),
                 ),
               ),
-              const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                const EdgeInsets.symmetric(
                   horizontal: 11,
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white.withValues(
+                    alpha: 0.14,
+                  ),
+                  borderRadius:
+                  BorderRadius.circular(20),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1065,12 +1414,19 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           ),
           const SizedBox(height: 16),
           ClipRRect(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius:
+            BorderRadius.circular(10),
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 6,
-              backgroundColor: Colors.white.withValues(alpha: 0.16),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              backgroundColor:
+              Colors.white.withValues(
+                alpha: 0.16,
+              ),
+              valueColor:
+              const AlwaysStoppedAnimation<Color>(
+                Colors.white,
+              ),
             ),
           ),
         ],
@@ -1082,87 +1438,134 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // QUESTION CARD
   // ---------------------------------------------------------------------------
 
-  Widget _buildQuestionCard(Question question) {
+  Widget _buildQuestionCard(
+      Question question,
+      ) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color:
+            Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
-          Text(
-            question.questionDescription,
-            style: const TextStyle(
-              fontSize: 18,
-              height: 1.55,
-              fontWeight: FontWeight.w600,
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              color:
+              Colors.indigo.withValues(alpha: 0.045),
+              borderRadius:
+              BorderRadius.circular(14),
+              border: Border.all(
+                color:
+                Colors.indigo.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Text(
+              question.questionDescription,
+              style: TextStyle(
+                fontSize: 18,
+                height: 1.55,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade900,
+              ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           _buildQuestionContent(question),
+          _buildQuestionAuthor(question),
         ],
       ),
     );
   }
 
-  Widget _buildQuestionContent(Question question) {
-    if (question.questionType == QuestionType.written) {
-      final controller = _writtenControllers[question.questionId];
+  Widget _buildQuestionContent(
+      Question question,
+      ) {
+    if (question.questionType ==
+        QuestionType.written) {
+      final controller =
+      _writtenControllers[question.questionId];
 
       if (controller == null) {
         return const SizedBox.shrink();
       }
 
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           Text(
             'Write your answer',
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade800,
+              fontWeight: FontWeight.w700,
+              color: Colors.indigo.shade800,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             'Write your answer clearly in the space below.',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey.shade600,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: controller,
-            enabled: !_isSaving && !_isAutoSubmitting,
+            enabled:
+            !_isSaving && !_isAutoSubmitting,
             minLines: 7,
             maxLines: 14,
-            textInputAction: TextInputAction.newline,
+            textInputAction:
+            TextInputAction.newline,
             decoration: InputDecoration(
-              hintText: 'Type your answer here...',
+              hintText:
+              'Type your answer here...',
               alignLabelWithHint: true,
               filled: true,
-              fillColor: Colors.grey.shade50,
+              fillColor:
+              Colors.indigo.withValues(
+                alpha: 0.025,
+              ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderRadius:
+                BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: Colors.grey.shade300,
+                ),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderRadius:
+                BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: Colors.grey.shade300,
+                ),
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Colors.indigo, width: 1.5),
+              focusedBorder:
+              OutlineInputBorder(
+                borderRadius:
+                BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: Colors.indigo.shade600,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -1170,24 +1573,37 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       );
     }
 
-    final orderedOptions = _getOrderedOptions(question);
+    final orderedOptions =
+    _getOrderedOptions(question);
 
     if (orderedOptions.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.amber.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+          color:
+          Colors.amber.withValues(alpha: 0.08),
+          borderRadius:
+          BorderRadius.circular(12),
+          border: Border.all(
+            color:
+            Colors.amber.withValues(alpha: 0.3),
+          ),
         ),
-        child: const Text('No answer options are available for this question.'),
+        child: const Text(
+          'No answer options are available '
+              'for this question.',
+        ),
       );
     }
 
     return Column(
       children: [
-        for (int index = 0; index < orderedOptions.length; index++)
+        for (
+        int index = 0;
+        index < orderedOptions.length;
+        index++
+        )
           _buildOptionCard(
             question: question,
             option: orderedOptions[index],
@@ -1204,49 +1620,74 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   }) {
     final label = _getOptionLabel(index);
 
-    final isSelected = _isOptionSelected(question.questionId, option.optionId);
+    final isSelected = _isOptionSelected(
+      question.questionId,
+      option.optionId,
+    );
 
-    final isMultiple = question.questionType == QuestionType.multiple;
+    final isMultiple =
+        question.questionType ==
+            QuestionType.multiple;
 
     return InkWell(
-      onTap: _isSaving || _isAutoSubmitting
+      onTap:
+      _isSaving || _isAutoSubmitting
           ? null
           : () {
-              _selectOption(question: question, optionId: option.optionId);
-            },
-      borderRadius: BorderRadius.circular(14),
+        _selectOption(
+          question: question,
+          optionId: option.optionId,
+        );
+      },
+      borderRadius:
+      BorderRadius.circular(14),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration:
+        const Duration(milliseconds: 160),
         width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 10),
+        margin:
+        const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isSelected
-              ? Colors.indigo.withValues(alpha: 0.06)
+              ? Colors.indigo.withValues(
+            alpha: 0.065,
+          )
               : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius:
+          BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? Colors.indigo : Colors.grey.shade200,
+            color: isSelected
+                ? Colors.indigo.shade500
+                : Colors.grey.shade200,
             width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+          crossAxisAlignment:
+          CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 34,
-              height: 34,
+            AnimatedContainer(
+              duration:
+              const Duration(milliseconds: 160),
+              width: 36,
+              height: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: isSelected
                     ? Colors.indigo
-                    : Colors.indigo.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
+                    : Colors.indigo.withValues(
+                  alpha: 0.08,
+                ),
+                borderRadius:
+                BorderRadius.circular(10),
               ),
               child: Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.indigo,
+                  color: isSelected
+                      ? Colors.white
+                      : Colors.indigo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -1258,24 +1699,32 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.4,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  fontWeight: isSelected
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                  color: Colors.grey.shade900,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             IgnorePointer(
               child: isMultiple
                   ? Checkbox(
-                      value: isSelected,
-                      onChanged: (_) {},
-                      activeColor: Colors.indigo,
-                    )
+                value: isSelected,
+                onChanged: (_) {},
+                activeColor:
+                Colors.indigo,
+              )
                   : Radio<bool>(
-                      value: true,
-                      groupValue: isSelected ? true : null,
-                      onChanged: (_) {},
-                      activeColor: Colors.indigo,
-                    ),
+                value: true,
+                groupValue:
+                isSelected
+                    ? true
+                    : null,
+                onChanged: (_) {},
+                activeColor:
+                Colors.indigo,
+              ),
             ),
           ],
         ),
@@ -1288,29 +1737,49 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // ---------------------------------------------------------------------------
 
   Widget _buildMarkForReviewButton() {
-    final isMarked = _isCurrentQuestionMarkedForReview();
+    final isMarked =
+    _isCurrentQuestionMarkedForReview();
 
     return Align(
       alignment: Alignment.centerRight,
       child: OutlinedButton.icon(
-        onPressed: _isSaving || _isAutoSubmitting ? null : _toggleMarkForReview,
+        onPressed:
+        _isSaving || _isAutoSubmitting
+            ? null
+            : _toggleMarkForReview,
         icon: Icon(
-          isMarked ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+          isMarked
+              ? Icons.bookmark_rounded
+              : Icons.bookmark_outline_rounded,
         ),
-        label: Text(isMarked ? 'Marked for Review' : 'Mark for Review'),
+        label: Text(
+          isMarked
+              ? 'Marked for Review'
+              : 'Mark for Review',
+        ),
         style: OutlinedButton.styleFrom(
           foregroundColor: isMarked
               ? Colors.orange.shade800
               : Colors.grey.shade700,
           side: BorderSide(
-            color: isMarked ? Colors.orange.shade300 : Colors.grey.shade300,
+            color: isMarked
+                ? Colors.orange.shade300
+                : Colors.grey.shade300,
           ),
           backgroundColor: isMarked
-              ? Colors.orange.withValues(alpha: 0.06)
+              ? Colors.orange.withValues(
+            alpha: 0.06,
+          )
               : Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+          padding:
+          const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
+          shape:
+          RoundedRectangleBorder(
+            borderRadius:
+            BorderRadius.circular(12),
           ),
         ),
       ),
@@ -1327,30 +1796,50 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius:
+        BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color:
+            Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                Icons.grid_view_rounded,
-                size: 20,
-                color: Colors.indigo.shade700,
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color:
+                  Colors.indigo.withValues(
+                    alpha: 0.08,
+                  ),
+                  borderRadius:
+                  BorderRadius.circular(9),
+                ),
+                child: Icon(
+                  Icons.grid_view_rounded,
+                  size: 19,
+                  color: Colors.indigo.shade700,
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 9),
               const Text(
                 'Question Navigator',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -1359,8 +1848,14 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (int index = 0; index < _questions.length; index++)
-                _buildQuestionNavigatorItem(index),
+              for (
+              int index = 0;
+              index < _questions.length;
+              index++
+              )
+                _buildQuestionNavigatorItem(
+                  index,
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -1370,12 +1865,23 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
     );
   }
 
-  Widget _buildQuestionNavigatorItem(int index) {
+  Widget _buildQuestionNavigatorItem(
+      int index,
+      ) {
     final question = _questions[index];
 
-    final isCurrent = index == _currentQuestionIndex;
-    final isAnswered = _isQuestionAnswered(question.questionId);
-    final isMarked = _isQuestionMarkedForReview(question.questionId);
+    final isCurrent =
+        index == _currentQuestionIndex;
+
+    final isAnswered =
+    _isQuestionAnswered(
+      question.questionId,
+    );
+
+    final isMarked =
+    _isQuestionMarkedForReview(
+      question.questionId,
+    );
 
     Color backgroundColor;
     Color foregroundColor;
@@ -1385,14 +1891,10 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       backgroundColor = Colors.indigo;
       foregroundColor = Colors.white;
       borderColor = Colors.indigo;
-    } else if (isMarked && isAnswered) {
-      backgroundColor = Colors.orange.shade50;
-      foregroundColor = Colors.orange.shade900;
-      borderColor = Colors.orange.shade400;
     } else if (isMarked) {
       backgroundColor = Colors.orange.shade50;
       foregroundColor = Colors.orange.shade900;
-      borderColor = Colors.orange.shade300;
+      borderColor = Colors.orange.shade400;
     } else if (isAnswered) {
       backgroundColor = Colors.green.shade50;
       foregroundColor = Colors.green.shade800;
@@ -1404,20 +1906,26 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
     }
 
     return InkWell(
-      onTap: _isSaving || _isAutoSubmitting
+      onTap:
+      _isSaving || _isAutoSubmitting
           ? null
           : () {
-              _goToQuestion(index);
-            },
-      borderRadius: BorderRadius.circular(10),
+        _goToQuestion(index);
+      },
+      borderRadius:
+      BorderRadius.circular(10),
       child: Container(
         width: 44,
         height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: backgroundColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor, width: isCurrent ? 1.5 : 1),
+          borderRadius:
+          BorderRadius.circular(10),
+          border: Border.all(
+            color: borderColor,
+            width: isCurrent ? 1.5 : 1,
+          ),
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -1451,15 +1959,30 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
       spacing: 16,
       runSpacing: 8,
       children: [
-        _buildLegendItem(color: Colors.indigo, label: 'Current'),
-        _buildLegendItem(color: Colors.green.shade400, label: 'Answered'),
-        _buildLegendItem(color: Colors.orange.shade400, label: 'Review'),
-        _buildLegendItem(color: Colors.grey.shade400, label: 'Unanswered'),
+        _buildLegendItem(
+          color: Colors.indigo,
+          label: 'Current',
+        ),
+        _buildLegendItem(
+          color: Colors.green.shade400,
+          label: 'Answered',
+        ),
+        _buildLegendItem(
+          color: Colors.orange.shade400,
+          label: 'Review',
+        ),
+        _buildLegendItem(
+          color: Colors.grey.shade400,
+          label: 'Unanswered',
+        ),
       ],
     );
   }
 
-  Widget _buildLegendItem({required Color color, required String label}) {
+  Widget _buildLegendItem({
+    required Color color,
+    required String label,
+  }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1468,13 +1991,17 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           height: 10,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius:
+            BorderRadius.circular(3),
           ),
         ),
         const SizedBox(width: 6),
         Text(
           label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade700,
+          ),
         ),
       ],
     );
@@ -1485,18 +2012,26 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   // ---------------------------------------------------------------------------
 
   Widget _buildNavigationBar() {
-    final isFirst = _currentQuestionIndex == 0;
+    final isFirst =
+        _currentQuestionIndex == 0;
 
-    final isLast = _currentQuestionIndex == _questions.length - 1;
+    final isLast =
+        _currentQuestionIndex ==
+            _questions.length - 1;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.grey.shade200,
+          ),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color:
+            Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, -3),
           ),
@@ -1508,41 +2043,65 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isFirst || _isSaving || _isAutoSubmitting
+                onPressed:
+                isFirst ||
+                    _isSaving ||
+                    _isAutoSubmitting
                     ? null
                     : _goToPreviousQuestion,
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                ),
                 label: const Text('Previous'),
+                style: OutlinedButton.styleFrom(
+                  padding:
+                  const EdgeInsets.symmetric(
+                    vertical: 13,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton.icon(
-                onPressed: _isSaving || _isAutoSubmitting
+                onPressed:
+                _isSaving ||
+                    _isAutoSubmitting
                     ? null
                     : isLast
                     ? _submitExam
                     : _goToNextQuestion,
                 icon: _isSaving
                     ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                  width: 18,
+                  height: 18,
+                  child:
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
                     : Icon(
-                        isLast
-                            ? Icons.send_rounded
-                            : Icons.arrow_forward_rounded,
-                      ),
+                  isLast
+                      ? Icons.send_rounded
+                      : Icons.arrow_forward_rounded,
+                ),
                 label: Text(
                   _isSaving
                       ? 'Saving...'
                       : isLast
                       ? 'Submit Exam'
                       : 'Next',
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor:
+                  isLast
+                      ? Colors.green.shade700
+                      : Colors.indigo.shade700,
+                  padding:
+                  const EdgeInsets.symmetric(
+                    vertical: 13,
+                  ),
                 ),
               ),
             ),
@@ -1560,22 +2119,34 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
     final question = _currentQuestion;
 
     if (question == null) {
-      return const Center(child: Text('Question not available.'));
+      return const Center(
+        child: Text(
+          'Question not available.',
+        ),
+      );
     }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1000),
+          constraints:
+          const BoxConstraints(
+            maxWidth: 1000,
+          ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
-              _buildQuestionHeader(question),
+              _buildQuestionHeader(
+                question,
+              ),
               const SizedBox(height: 12),
               _buildMarkForReviewButton(),
               const SizedBox(height: 14),
-              _buildQuestionCard(question),
+              _buildQuestionCard(
+                question,
+              ),
               const SizedBox(height: 18),
               _buildQuestionNavigator(),
               const SizedBox(height: 20),
@@ -1593,21 +2164,43 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor:
+      const Color(0xFFF6F7FB),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 2,
+        surfaceTintColor:
+        Colors.transparent,
         automaticallyImplyLeading: false,
         title: Row(
           children: [
-            const Icon(Icons.assignment_rounded, color: Colors.indigo),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color:
+                Colors.indigo.withValues(
+                  alpha: 0.08,
+                ),
+                borderRadius:
+                BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.assignment_rounded,
+                color: Colors.indigo.shade700,
+                size: 20,
+              ),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 widget.exam.examName,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+                overflow:
+                TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -1617,25 +2210,40 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           const SizedBox(width: 8),
           if (_isSaving)
             const Padding(
-              padding: EdgeInsets.only(right: 8),
+              padding:
+              EdgeInsets.only(right: 8),
               child: Center(
                 child: Text(
                   'Saving...',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ),
           Padding(
-            padding: const EdgeInsets.only(right: 10),
+            padding:
+            const EdgeInsets.only(
+              right: 10,
+            ),
             child: TextButton.icon(
-              onPressed: _isSaving || _isAutoSubmitting ? null : _quitExam,
-              icon: const Icon(Icons.exit_to_app_rounded),
+              onPressed:
+              _isSaving ||
+                  _isAutoSubmitting
+                  ? null
+                  : _quitExam,
+              icon: const Icon(
+                Icons.exit_to_app_rounded,
+              ),
               label: const Text('Quit'),
             ),
           ),
         ],
       ),
-      bottomNavigationBar: _isLoading || _errorMessage != null
+      bottomNavigationBar:
+      _isLoading ||
+          _errorMessage != null
           ? null
           : _buildNavigationBar(),
       body: _isLoading
@@ -1645,4 +2253,18 @@ class _ExamAttemptScreenState extends State<ExamAttemptScreen> {
           : _buildContent(),
     );
   }
+}
+
+// =============================================================================
+// QUESTION AUTHOR MODEL
+// =============================================================================
+
+class _QuestionAuthor {
+  final String displayName;
+  final String? mobileNumber;
+
+  const _QuestionAuthor({
+    required this.displayName,
+    required this.mobileNumber,
+  });
 }

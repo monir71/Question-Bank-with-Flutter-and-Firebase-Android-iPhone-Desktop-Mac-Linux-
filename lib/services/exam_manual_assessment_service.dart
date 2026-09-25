@@ -32,7 +32,7 @@ class ExamManualAssessmentService {
     final result = ExamResult.fromMap(document.data()!);
 
     final questionIndex = result.questionResults.indexWhere(
-      (question) => question.questionId == questionId,
+          (question) => question.questionId == questionId,
     );
 
     if (questionIndex == -1) {
@@ -41,33 +41,44 @@ class ExamManualAssessmentService {
 
     final questionResult = result.questionResults[questionIndex];
 
-    if (questionResult.assessmentStatus == QuestionAssessmentStatus.automatic) {
+    if (questionResult.assessmentStatus ==
+        QuestionAssessmentStatus.automatic) {
       throw Exception(
         'Automatically assessed questions cannot be manually assessed.',
       );
     }
 
     if (awardedMarks > questionResult.maximumMarks) {
-      throw Exception('Awarded marks cannot exceed the maximum marks.');
+      throw Exception(
+        'Awarded marks cannot exceed the maximum marks.',
+      );
     }
 
     final updatedQuestionResult = questionResult.copyWith(
       awardedMarks: awardedMarks,
-      assessmentStatus: QuestionAssessmentStatus.manuallyAssessed,
+      assessmentStatus:
+      QuestionAssessmentStatus.manuallyAssessed,
       assessedBy: assessedBy,
       assessedAt: DateTime.now(),
-      feedback: feedback?.trim().isEmpty == true ? null : feedback?.trim(),
+      feedback:
+      feedback?.trim().isEmpty == true
+          ? null
+          : feedback?.trim(),
     );
 
-    final updatedQuestionResults = List<ExamQuestionResult>.from(
+    final updatedQuestionResults =
+    List<ExamQuestionResult>.from(
       result.questionResults,
     );
 
-    updatedQuestionResults[questionIndex] = updatedQuestionResult;
+    updatedQuestionResults[questionIndex] =
+        updatedQuestionResult;
 
-    final updatedScore = updatedQuestionResults.fold<double>(
+    final updatedScore =
+    updatedQuestionResults.fold<double>(
       0.0,
-      (total, question) => total + question.awardedMarks,
+          (total, question) =>
+      total + question.awardedMarks,
     );
 
     final updatedPercentage = _calculatePercentage(
@@ -75,7 +86,17 @@ class ExamManualAssessmentService {
       totalMarks: result.totalMarks,
     );
 
-    final updatedPassed = updatedPercentage >= result.passPercentage;
+    final updatedPassed =
+        updatedPercentage >= result.passPercentage;
+
+    final hasPendingAssessment =
+    updatedQuestionResults.any(
+          (question) =>
+      question.assessmentStatus ==
+          QuestionAssessmentStatus.pending,
+    );
+
+    final updatedIsPublished = !hasPendingAssessment;
 
     await _collection.doc(resultId).update({
       'questionResults': updatedQuestionResults
@@ -84,6 +105,7 @@ class ExamManualAssessmentService {
       'score': updatedScore,
       'percentage': updatedPercentage,
       'passed': updatedPassed,
+      'isPublished': updatedIsPublished,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }

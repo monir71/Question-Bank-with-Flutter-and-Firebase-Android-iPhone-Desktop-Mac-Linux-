@@ -21,6 +21,7 @@ class ExamResult {
   final double percentage;
 
   final bool passed;
+  final bool isPublished;
 
   final ExamResultSubmissionType submissionType;
 
@@ -46,6 +47,7 @@ class ExamResult {
     required this.score,
     required this.percentage,
     required this.passed,
+    required this.isPublished,
     required this.submissionType,
     required this.startedAt,
     required this.completedAt,
@@ -69,6 +71,7 @@ class ExamResult {
       'score': score,
       'percentage': percentage,
       'passed': passed,
+      'isPublished': isPublished,
       'submissionType': submissionType.name,
       'startedAt': Timestamp.fromDate(startedAt),
       'completedAt': Timestamp.fromDate(completedAt),
@@ -134,6 +137,7 @@ class ExamResult {
       score: (map['score'] as num?)?.toDouble() ?? 0.0,
       percentage: (map['percentage'] as num?)?.toDouble() ?? 0.0,
       passed: map['passed'] as bool? ?? false,
+      isPublished: map['isPublished'] as bool? ?? false,
       submissionType: readSubmissionType(map['submissionType']),
       startedAt: readDate(map['startedAt']),
       completedAt: readDate(map['completedAt']),
@@ -158,6 +162,7 @@ class ExamResult {
     double? score,
     double? percentage,
     bool? passed,
+    bool? isPublished,
     ExamResultSubmissionType? submissionType,
     DateTime? startedAt,
     DateTime? completedAt,
@@ -179,6 +184,7 @@ class ExamResult {
       score: score ?? this.score,
       percentage: percentage ?? this.percentage,
       passed: passed ?? this.passed,
+      isPublished: isPublished ?? this.isPublished,
       submissionType: submissionType ?? this.submissionType,
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,

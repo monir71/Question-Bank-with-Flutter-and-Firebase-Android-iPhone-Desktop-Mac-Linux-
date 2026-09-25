@@ -26,6 +26,12 @@ class ExamResultService {
   }) async {
     final resultId = _collection.doc().id;
 
+    final hasPendingAssessment = questionResults.any(
+          (question) =>
+      question.assessmentStatus ==
+          QuestionAssessmentStatus.pending,
+    );
+
     final result = ExamResult(
       resultId: resultId,
       examId: exam.examId,
@@ -40,6 +46,7 @@ class ExamResultService {
       score: score,
       percentage: percentage,
       passed: passed,
+      isPublished: !hasPendingAssessment,
       passPercentage: exam.passPercentage,
       submissionType: submissionType,
       startedAt: attempt.startedAt,
@@ -51,7 +58,6 @@ class ExamResultService {
     final data = result.toMap();
 
     data['completedAt'] = FieldValue.serverTimestamp();
-
     data['createdAt'] = FieldValue.serverTimestamp();
 
     await _collection.doc(result.resultId).set(data);

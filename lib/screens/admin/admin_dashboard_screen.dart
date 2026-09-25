@@ -1,10 +1,16 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:questionbank/models/question.dart';
 import 'package:questionbank/screens/admin/exams_screen.dart';
 import 'package:questionbank/screens/admin/programs_screen.dart';
 import 'package:questionbank/screens/admin/questions_screen.dart';
+import 'package:questionbank/screens/admin/question_from_others_screen.dart';
+import 'package:questionbank/screens/admin/result_screen.dart';
 import 'package:questionbank/screens/admin/subjects_screen.dart';
 import 'package:questionbank/screens/admin/topics_screen.dart';
 import 'package:questionbank/screens/admin/users_screen.dart';
+import 'package:questionbank/services/question_service.dart';
+import 'package:questionbank/services/user_service.dart';
 
 import 'learning_areas_screen.dart';
 
@@ -18,10 +24,156 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _selectedIndex = 0;
 
+  final UserService _userService = UserService();
+  final QuestionService _questionService = QuestionService();
+
+  int _totalUsers = 0;
+  int _totalApprovedQuestions = 0;
+  int _totalExams = 0;
+  int _totalApprovedResults = 0;
+
+  bool _usersLoading = true;
+  bool _questionsLoading = true;
+  bool _examsLoading = true;
+  bool _resultsLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    _loadTotalUsers();
+    _loadApprovedQuestions();
+    _loadTotalExams();
+    _loadApprovedResults();
+  }
+
+  Future<void> _loadTotalUsers() async {
+    try {
+      final users = await _userService.getAllUsers();
+
+      if (!mounted) return;
+
+      setState(() {
+        _totalUsers = users.length;
+        _usersLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _usersLoading = false;
+      });
+
+      _showMessage('Unable to load total users.\n$e', isError: true);
+    }
+  }
+
+  Future<void> _loadApprovedQuestions() async {
+    try {
+      final questions = await _questionService.getQuestionsByStatus(
+        QuestionStatus.approved,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _totalApprovedQuestions = questions.length;
+        _questionsLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _questionsLoading = false;
+      });
+
+      _showMessage('Unable to load approved questions.\n$e', isError: true);
+    }
+  }
+
+  Future<void> _loadTotalExams() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('exams')
+          .get();
+
+      if (!mounted) return;
+
+      setState(() {
+        _totalExams = snapshot.docs.length;
+        _examsLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _examsLoading = false;
+      });
+
+      _showMessage('Unable to load total exams.\n$e', isError: true);
+    }
+  }
+
+  Future<void> _loadApprovedResults() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('examResults')
+          .where('isPublished', isEqualTo: true)
+          .get();
+
+      if (!mounted) return;
+
+      setState(() {
+        _totalApprovedResults = snapshot.docs.length;
+        _resultsLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _resultsLoading = false;
+      });
+
+      _showMessage('Unable to load approved results.\n$e', isError: true);
+    }
+  }
+
+  void _refreshDashboard() {
+    setState(() {
+      _usersLoading = true;
+      _questionsLoading = true;
+      _examsLoading = true;
+      _resultsLoading = true;
+    });
+
+    _loadDashboardData();
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? Colors.red.shade700 : null,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
   void _selectSection(int index) {
     setState(() {
       _selectedIndex = index;
     });
+
+    if (index == 0) {
+      _refreshDashboard();
+    }
 
     if (_isMobile(context)) {
       Navigator.pop(context);
@@ -49,10 +201,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const QuestionsScreen();
 
       case 7:
-        return const ExamsScreen();
+        return const QuestionFromOthersScreen();
 
       case 8:
-        return _buildDashboardHome();
+        return const ExamsScreen();
+
+      case 9:
+        return const ResultScreen();
 
       case 0:
       default:
@@ -66,21 +221,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Page heading
-          const Text(
-            'Dashboard',
-            style: TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-            ),
-          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Dashboard',
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
 
-          const SizedBox(height: 6),
+                    const SizedBox(height: 6),
 
-          Text(
-            'Welcome to Question Bank Administration',
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                    Text(
+                      'Welcome to Question Bank Administration',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              IconButton(
+                tooltip: 'Refresh dashboard',
+                onPressed: _refreshDashboard,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
           ),
 
           const SizedBox(height: 28),
@@ -168,6 +343,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     required String title,
     required String value,
     required IconData icon,
+    required bool isLoading,
   }) {
     return SizedBox(
       height: 110,
@@ -209,13 +385,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                     const SizedBox(height: 5),
 
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        fontSize: 25,
-                        fontWeight: FontWeight.bold,
+                    if (isLoading)
+                      SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.blue.shade700,
+                        ),
+                      )
+                    else
+                      Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -252,36 +438,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             SizedBox(
               width: cardWidth,
               child: _buildDashboardCard(
-                title: 'Users',
-                value: '25',
+                title: 'Total Users',
+                value: _totalUsers.toString(),
                 icon: Icons.people_outline,
+                isLoading: _usersLoading,
               ),
             ),
 
             SizedBox(
               width: cardWidth,
               child: _buildDashboardCard(
-                title: 'Total Questions',
-                value: '430',
+                title: 'Approved Questions',
+                value: _totalApprovedQuestions.toString(),
                 icon: Icons.question_mark_outlined,
+                isLoading: _questionsLoading,
               ),
             ),
 
             SizedBox(
               width: cardWidth,
               child: _buildDashboardCard(
-                title: 'Exams',
-                value: '8',
+                title: 'Total Exams',
+                value: _totalExams.toString(),
                 icon: Icons.assignment_outlined,
+                isLoading: _examsLoading,
               ),
             ),
 
             SizedBox(
               width: cardWidth,
               child: _buildDashboardCard(
-                title: 'Results',
-                value: '56',
+                title: 'Approved Results',
+                value: _totalApprovedResults.toString(),
                 icon: Icons.bar_chart_outlined,
+                isLoading: _resultsLoading,
               ),
             ),
           ],
@@ -309,9 +499,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
       child: Column(
         children: [
-          // --------------------------------------------------
-          // Brand Header
-          // --------------------------------------------------
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 22),
             child: Row(
@@ -371,9 +558,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
           const SizedBox(height: 18),
 
-          // --------------------------------------------------
-          // Navigation
-          // --------------------------------------------------
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -438,6 +622,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     title: 'Questions',
                   ),
 
+                  _buildMenuItem(
+                    index: 7,
+                    icon: Icons.question_answer_outlined,
+                    selectedIcon: Icons.question_answer_rounded,
+                    title: 'Questions from Others',
+                  ),
+
                   const SizedBox(height: 16),
 
                   _buildSectionLabel('EXAMINATION'),
@@ -445,14 +636,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   const SizedBox(height: 8),
 
                   _buildMenuItem(
-                    index: 7,
+                    index: 8,
                     icon: Icons.assignment_outlined,
                     selectedIcon: Icons.assignment_rounded,
                     title: 'Exams',
                   ),
 
                   _buildMenuItem(
-                    index: 8,
+                    index: 9,
                     icon: Icons.bar_chart_outlined,
                     selectedIcon: Icons.bar_chart_rounded,
                     title: 'Results',
@@ -462,9 +653,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
 
-          // --------------------------------------------------
-          // Bottom Settings
-          // --------------------------------------------------
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
             child: Column(
